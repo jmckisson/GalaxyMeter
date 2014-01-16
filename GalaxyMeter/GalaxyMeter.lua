@@ -286,7 +286,7 @@ function GalaxyMeter:OnLoad()
             tMode = self.tModes[5],   -- Default to player damage done
             nLogIndex = 0,
             tLogDisplay = nil, -- Log currently displayed
-            strLogPlayer = GameLib.GetPlayerUnit():GetName(),     -- Current player log being displayed, default to yourself
+            strLogPlayer = "",     -- Current player log being displayed, default to yourself
             bGrouped = false,
         }
 
@@ -316,6 +316,9 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		self.unitPlayerId = self.unitPlayer:GetId()
 		self.PlayerId = tostring(self.unitPlayerId)
 		self.PlayerName = self.unitPlayer:GetName()
+
+        self.vars.strLogPlayer = self.PlayerName
+
 	--else
 		Apollo.StartTimer("PlayerCheckTimer")
 	end
@@ -1398,7 +1401,7 @@ end
 -- Report current log to X channel
 function GalaxyMeter:OnReport( wndHandler, wndControl, eMouseButton )
 
-    local mode = self.vars.mode
+    local mode = self.vars.tMode
 
     local tLogSegment = self:GetLogDisplay()
     --[[
@@ -1416,7 +1419,7 @@ function GalaxyMeter:OnReport( wndHandler, wndControl, eMouseButton )
     --]]
 
 
-    if self.bDebug then
+    if bDebug then
         self:Rover("vars: OnReport", self.vars)
 
         if self.vars.strLogPlayer == "" then
@@ -1494,7 +1497,8 @@ function GalaxyMeter:ReportPlayerList(tLogSegment, subType, strModeName, strPlay
 
     local tPlayerLog = tLogSegment.players[strPlayerName]
 
-    local tPlayerList = self:GetPlayerList(tPlayerLog, subType)
+    --GetPlayerList(tLogSegment, subType, strModeName, playerName)
+    local tPlayerList = self:GetPlayerList(tLogSegment, subType, strModeName, strPlayerName)
 
     table.sort(tPlayerList, function(a,b) return a.t > b.t end)
 
@@ -1504,7 +1508,7 @@ function GalaxyMeter:ReportPlayerList(tLogSegment, subType, strModeName, strPlay
 
     table.insert(tStrings, string.format("%s on %s - %d (%.2f) - %s",
         --"%s's blah on %s"
-        string.format(self.vars.mode.pattern, strPlayerName, self.vars.mode.name, tLogSegment.name),
+        string.format(self.varstMode.pattern, strPlayerName, self.vars.tMode.name, tLogSegment.name),
         --strPlayerName,
         --tReportTypes[self.vars.mode],
         --tLogSegment.name,  --
@@ -1523,6 +1527,7 @@ end
 
 
 function GalaxyMeter:ReportOverallList(tLogSegment, subType, strModeName, strPlayerName)
+    --GetOverallList(tLogSegment, subType)
     local tPlayerList = self:GetOverallList(tLogSegment, subType)
 
     table.sort(tPlayerList, function(a,b) return a.t > b.t end)
@@ -1537,7 +1542,7 @@ function GalaxyMeter:ReportOverallList(tLogSegment, subType, strModeName, strPla
     end
 
     table.insert(tStrings, string.format("%s - %d (%.2f) - %s",
-        string.format(self.vars.mode.pattern, tLogSegment.name),
+        string.format(self.vars.tMode.pattern, tLogSegment.name),
         total,
         total / combatLength,
         self:SecondsToString(combatLength)))
@@ -1600,11 +1605,11 @@ function GalaxyMeter:DisplayUpdate()
         return
     end
 
-    local mode = self.vars.mode
+    local mode = self.vars.tMode
 
-    if self.bDebug then
+    if bDebug then
 
-        self:Rover("vars", self.vars)
+        self:Rover("DisplayUpdate: vars", self.vars)
 
         if self.vars.strLogPlayer == "" then
             gLog:fatal("DisplayUpdate: vars.logplayer not defined")
@@ -1696,7 +1701,7 @@ function GalaxyMeter:OnModeLeft( wndHandler, wndControl, eMouseButton )
 		self.vars.nModeIndex = #self.tModes
     end
 
-    self.vars.mode = #self.tModes[self.vars.nModeIndex]
+    tM = #self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
@@ -1710,7 +1715,7 @@ function GalaxyMeter:OnModeRight( wndHandler, wndControl, eMouseButton )
 		self.vars.nModeIndex = 1
     end
 
-    self.vars.mode = #self.tModes[self.vars.nModeIndex]
+    self.vars.tMode = #self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
