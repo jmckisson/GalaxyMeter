@@ -126,6 +126,7 @@ end
 
 -- From: http://lua-users.org/wiki/SplitJoin
 -- Compatibility: Lua-5.1
+--[[
 function GalaxyMeter:string_split(p,d)
 	local t, ll
 	t={}
@@ -143,6 +144,7 @@ function GalaxyMeter:string_split(p,d)
     end
 	return t
 end
+--]]
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter OnLoad
@@ -341,12 +343,12 @@ function GalaxyMeter:OnTimer()
 	
 	self.tCurrentLog.combat_length = os.clock() - self.tCurrentLog.start
 
-	if self.vars.logdisplay == self.tCurrentLog then
+	if self.vars.tLogDisplay == self.tCurrentLog then
 		self.Children.TimeText:SetText("Timer: " .. self:SecondsToString(self.tCurrentLog.combat_length))
 		
 		self:DisplayUpdate()
     else
-        gLog:info("logdisplay: " .. tostring(self.vars.logdisplay))
+        gLog:info("logdisplay: " .. tostring(self.vars.tLogDisplay))
         gLog:info("tCurrentLog: " .. tostring(self.tCurrentLog))
 	end
 end
@@ -638,13 +640,13 @@ function GalaxyMeter:OnGroupJoin()
 		end
 	end
 	
-	self.vars.grouped = true
+	self.vars.bGrouped = true
 	self:SetGroupLogChannel(GroupLeader)
 end
 
 
 function GalaxyMeter:OnGroupLeft()
-	self.vars.grouped = false
+	self.vars.bGrouped = false
 	self:LeaveGroupLogChannel()
 end
 
@@ -675,26 +677,26 @@ end
 
 -- Return log indexed by logdisplay, current segment if logdisplay is 0, or nil
 function GalaxyMeter:GetLogDisplay()
-	return self.vars.logdisplay
+	return self.vars.tLogDisplay
 end
 
 
 -- @return LogDisplayPlayerId, or nil
 function GalaxyMeter:GetLogDisplayPlayerId()
-	return self.vars.logdisplay.playerid
+	return self.vars.tLogDisplay.playerid
 end
 
 
 -- @return LogDisplayTimer, or nil
 function GalaxyMeter:GetLogDisplayTimer()
-	return self.vars.logdisplay.combat_length
+	return self.vars.tLogDisplay.combat_length
 end
 
 
 function GalaxyMeter:SetLogTitle(title)
 	if self.tCurrentLog.name == "" then
 		self.tCurrentLog.name = title
-		if self.tCurrentLog == self.vars.logdisplay then
+		if self.tCurrentLog == self.vars.tLogDisplay then
 			self.Children.EncounterButton:SetText(title)
 		end
 	end
@@ -1417,19 +1419,19 @@ function GalaxyMeter:OnReport( wndHandler, wndControl, eMouseButton )
     if self.bDebug then
         self:Rover("vars: OnReport", self.vars)
 
-        if self.vars.logplayer == "" then
+        if self.vars.strLogPlayer == "" then
             gLog:fatal("OnReport: vars.logplayer not set")
             return
         end
 
-        if not tLogSegment.players[self.vars.logplayer] then
-            gLog:fatal(string.format("OnReport: tLogSegment.players[%s] is nil", self.vars.logplayer))
+        if not tLogSegment.players[self.vars.strLogPlayer] then
+            gLog:fatal(string.format("OnReport: tLogSegment.players[%s] is nil", self.vars.strLogPlayer))
             return
         end
     end
 
     -- TODO: Properly detect whos report we're looking at
-    local tPlayerLog = tLogSegment.players[self.vars.logplayer]
+    local tPlayerLog = tLogSegment.players[self.vars.strLogPlayer]
 
     self:Rover("tPlayerLog: OnReport", tPlayerLog)
 
@@ -1604,13 +1606,13 @@ function GalaxyMeter:DisplayUpdate()
 
         self:Rover("vars", self.vars)
 
-        if self.vars.logplayer == "" then
+        if self.vars.strLogPlayer == "" then
             gLog:fatal("DisplayUpdate: vars.logplayer not defined")
             return
         end
 
-        if not tLogSegment.players[self.vars.logplayer] then
-            gLog:fatal(string.format("DisplayUpdate: log.players[%s] not defined", self.vars.logplayer))
+        if not tLogSegment.players[self.vars.strLogPlayer] then
+            gLog:fatal(string.format("DisplayUpdate: log.players[%s] not defined", self.vars.strLogPlayer))
             return
         end
 
@@ -1621,7 +1623,7 @@ function GalaxyMeter:DisplayUpdate()
     -- If its an overall list we want it to say "Overall Damage Done" etc
     -- If its a player list it should say "Player's Damage Done on Whatever"
 
-    local strPlayerName = tLogSegment.players[self.vars.logplayer].name
+    local strPlayerName = tLogSegment.players[self.vars.strLogPlayer].name
 
     if not strPlayerName or strPlayerName == "" then
         strPlayerName = self.PlayerName
@@ -1681,20 +1683,20 @@ end
 function GalaxyMeter:OnClearAll()
 	--if not self.bInCombat then return nil end
 	self.log = {}
-	self.vars.logindex = 0
-	self.vars.logdisplay = 0
-    self.vars.logplayer = ""
+	self.vars.nLogIndex = 0
+	self.vars.tLogDisplay = 0
+    self.vars.strLogPlayer = ""
 	self:RefreshDisplay()
 end
 
 
 function GalaxyMeter:OnModeLeft( wndHandler, wndControl, eMouseButton )
-	self.vars.modeIndex = self.vars.modeIndex - 1
-	if self.vars.modeIndex < 1 then
-		self.vars.modeIndex = #self.tModes
+	self.vars.nModeIndex = self.vars.nModeIndex - 1
+	if self.vars.nModeIndex < 1 then
+		self.vars.nModeIndex = #self.tModes
     end
 
-    self.vars.mode = #self.tModes[self.vars.modeIndex]
+    self.vars.mode = #self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
@@ -1703,12 +1705,12 @@ end
 
 
 function GalaxyMeter:OnModeRight( wndHandler, wndControl, eMouseButton )
-	self.vars.modeIndex = self.vars.modeIndex + 1
-	if self.vars.modeIndex > #self.tModes then
-		self.vars.modeIndex = 1
+	self.vars.nModeIndex = self.vars.nModeIndex + 1
+	if self.vars.nModeIndex > #self.tModes then
+		self.vars.nModeIndex = 1
     end
 
-    self.vars.mode = #self.tModes[self.vars.modeIndex]
+    self.vars.mode = #self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
@@ -1856,9 +1858,9 @@ end
 ---------------------------------------------------------------------------------------------------
 
 function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
-	self.logdisplay = wndHandler:GetData()
-	self.Children.EncounterButton:SetText(self.log[self.logdisplay].id)
-	self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.log[self.logdisplay].combat_length))
+	self.tLogDisplay = wndHandler:GetData()
+	self.Children.EncounterButton:SetText(self.log[self.tLogDisplay].id)
+	self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.log[self.tLogDisplay].combat_length))
 	
 	self:HideEncounterDropDown()
 	
