@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<WindowTemplates>
+    <WindowTemplate Name="DPSMeter" SingleBorderFrame="CRB_UIKitSprites:spr_HologramBorderless" UseMargins="0" TopMargin="0" LeftMargin="0" RightMargin="0" BottomMargin="0" />
+    <WindowTemplate Name="GalMetOptions" SingleBorderFrame="Inventory_TEMP:spr_TEMP_Bag_HolderFrame" UseMargins="1" TopMargin="28" LeftMargin="0" RightMargin="28" BottomMargin="49" BorderBottom="" BorderBottomLeft="" BorderBottomRight="" BorderTop="" BorderTopLeft="" ClientFrame="" BorderTopRight="" BorderLeft="">
+        <VScroll Internal="HologramSprites:HoloFrame2">
+            <Thumb Auto="CRB_Basekit:kitBtn_ScrollHolo_VertBarLarge" />
+            <IncButton Auto="CRB_Basekit:kitBtn_ScrollHolo_DownLarge" />
+            <DecButton Auto="CRB_Basekit:kitBtn_ScrollHolo_UpLarge" />
+        </VScroll>
+        <BlankButton Auto="" />
+    </WindowTemplate>
+</WindowTemplates>
