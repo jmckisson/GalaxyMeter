@@ -462,6 +462,8 @@ function GalaxyMeter:PushLogSegment()
         table.remove(self.log)
     end
 
+    Apollo.StopTimer("CombatTimer")
+
     self:NewLogSegment()
 
 end
@@ -898,6 +900,12 @@ end
 function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
     --local playerUnit = GameLib.GetPlayerUnit()
 
+    if bDebug then
+        if not self.unitPlayer then
+            gLog:fatal("GetDamageEventType: self.unitPlayer is nil!")
+        end
+    end
+
     if unitTarget == self.unitPlayer then
 
         if unitCaster == self.unitPlayer then
@@ -929,9 +937,11 @@ function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, 
     else
 
         -- Check if incoming dmg on pet or self for now, which we aren't tracking yet
-        if not self:ShouldThrowAwayDamageEvent(unitCaster, unitTarget) then
-            event.TypeId = self:GetDamageEventType(unitCaster, unitTarget)
+        if self:ShouldThrowAwayDamageEvent(unitCaster, unitTarget) then
+            return
         end
+
+        event.TypeId = self:GetDamageEventType(unitCaster, unitTarget)
 
         -- Should we trigger a new log segment?
         if self.bNeedNewLog then
@@ -1701,7 +1711,7 @@ function GalaxyMeter:OnModeLeft( wndHandler, wndControl, eMouseButton )
 		self.vars.nModeIndex = #self.tModes
     end
 
-    tM = #self.tModes[self.vars.nModeIndex]
+    self.vars.tMode = self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
@@ -1715,7 +1725,7 @@ function GalaxyMeter:OnModeRight( wndHandler, wndControl, eMouseButton )
 		self.vars.nModeIndex = 1
     end
 
-    self.vars.tMode = #self.tModes[self.vars.nModeIndex]
+    self.vars.tMode = self.tModes[self.vars.nModeIndex]
 	
 	self:Rover("vars", self.vars)
 	
