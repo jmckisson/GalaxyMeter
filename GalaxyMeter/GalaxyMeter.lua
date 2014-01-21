@@ -31,7 +31,7 @@ local kcrSelectedText = CColor.new(1,1,1,1)
 local kcrNormalText = CColor.new(1,1,0.7,0.7)
 
 -- Damage Type Colors (Get Proper Colors)
-local kDamageToColor = {
+local kDamageStrToColor = {
 	["Self"] 					= CColor.new(1, .75, 0, 1),
 	["DamageType_Physical"] 	= CColor.new(1, .5, 0, 1),
 	["DamageType_Tech"]			= CColor.new(.6, 0, 1, 1),
@@ -40,6 +40,26 @@ local kDamageToColor = {
 	["DamageType_Fall"]			= CColor.new(.5, .5, .5, 1),
 	["DamageType_Suffocate"]	= CColor.new(.3, 0, 1, 1),
 	["DamageType_Unknown"]		= CColor.new(.5, .5, .5, 1),
+}
+
+local kDamageTypeToColor = {
+	[0]	= kDamageStrToColor["DamageType_Physical"],
+	[1]	= kDamageStrToColor["DamageType_Tech"],
+	[2]	= kDamageStrToColor["DamageType_Magic"],
+	[3]	= kDamageStrToColor["DamageType_Healing"],
+	[4] = kDamageStrToColor["DamageType_Healing"],
+	[5]	= kDamageStrToColor["DamageType_Fall"],
+	[6]	= kDamageStrToColor["DamageType_Suffocate"],
+}
+
+local kDamageTypeToString = {
+	[0]	= "Physical",
+	[1]	= "Tech",
+	[2]	= "Magic",
+	[3]	= "Heal",
+	[4] = "Heal Shield",
+	[5]	= "Falling",
+	[6]	= "Suffocate",
 }
 
 
@@ -63,10 +83,10 @@ local eTypeDamageOrHealing = {
     PlayerHealingOut = 6,
 }
 
-
 local tReportTypes = {
 	"Overall Damage", "Overall Healing Done", "Damage Done", "Damage Taken", "Healing Done", "Healing Taken",
 }
+
 
 -- Message types for use in the ICCommLib channel
 local eMsgType = {
@@ -124,27 +144,6 @@ function GalaxyMeter:HexToCColor(color)
 end
 
 
--- From: http://lua-users.org/wiki/SplitJoin
--- Compatibility: Lua-5.1
---[[
-function GalaxyMeter:string_split(p,d)
-	local t, ll
-	t={}
-	ll=0
-	if(#p == 1) then return {p} end
-    while true do
-		l=string.find(p,d,ll,true) -- find the next d in the string
-		if l~=nil then -- if "not not" found then..
-			table.insert(t, string.sub(p,ll,l-1)) -- Save it in our array.
-			ll=l+1 -- save just after where we found it for searching next time.
-		else
-			table.insert(t, string.sub(p,ll)) -- Save what's left in our array.
-			break -- Break at end, as it should be, according to the lua manual.
-		end
-    end
-	return t
-end
---]]
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter OnLoad
@@ -161,7 +160,6 @@ function GalaxyMeter:OnLoad()
 	
 		-- Slash Commands
 	    Apollo.RegisterSlashCommand("lkm", 								"OnGalaxyMeterOn", self)
-	    Apollo.RegisterSlashCommand("galmet",							"OnGalaxyMeterOn", self)
 	
 		-- Player Updates
 		Apollo.RegisterEventHandler("ChangeWorld", 						"OnChangeWorld", self)
@@ -176,7 +174,14 @@ function GalaxyMeter:OnLoad()
 		--Apollo.RegisterEventHandler("TransferenceDone", 				"OnTransferenceDone", self)
 		--Apollo.RegisterEventHandler("CombatLogString", 				"OnCombatLogString", self)
 		--Apollo.RegisterEventHandler("GenericEvent_CombatLogString", 	"OnCombatLogString", self)
-		
+		Apollo.RegisterEventHandler("CombatLogCCStateBreak",			"OnCombatLogCCStateBreak", self)
+		Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
+		Apollo.RegisterEventHandler("CombatLogInterrupted",				"OnCombatLogInterrupted", self)
+		Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
+		Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
+		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
+		Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
+
 		-- Chat: Shared Logging
 		Apollo.RegisterEventHandler("Group_Join",						"OnGroupJoin", self)
 		Apollo.RegisterEventHandler("Group_Left",						"OnGroupLeft", self)
@@ -190,7 +195,7 @@ function GalaxyMeter:OnLoad()
 		-- Player Check Timer
 	    Apollo.CreateTimer("PlayerCheckTimer", 1, false)	-- Pulsing Timer
 	    Apollo.RegisterTimerHandler("PlayerCheckTimer", 				"OnPlayerCheckTimer", self)
-		Apollo.StartTimer("PlayerCheckTimer")
+
 		
 	    -- Load Forms
 	    self.wndMain = Apollo.LoadForm("GalaxyMeter.xml", "GalaxyMeterForm", nil, self)
@@ -230,72 +235,171 @@ function GalaxyMeter:OnLoad()
 
         -- Display Modes, list of mode names, callbacks for display and report, and log subtype indices
         self.tModes = {
-            {   name = "Overall Damage Done",       -- Display name
-                pattern = "Damage on %s",           --
-                display = self.GetListOverall,
-                report = self.ReportOverallList,
-                type = "damageDone"},
-
-            {   name = "Overall Damage Taken",
-                pattern = "Damage from %s",
-                display = self.GetListOverall,
-                report = self.ReportOverallList,
-                type = "damageTaken"},
-
-            {   name = "Overall Healing Done",
+            ["Main Menu"] = {
+                name = "Main Menu",
+                display = self.DisplayMainMenu,
+                report = nil,
+                prev = nil,
+                next = self.MenuMainSelection,
+				sort = function(a,b) return a.n < b.n end,	-- Aplhabetic sort by mode name
+            },
+            ["Damage Done"] = {
+                name = "Overall Damage Done",       		-- Display name
+                pattern = "Damage done on %s",           	--
+                display = self.GetOverallList,
+                report = self.ReportGenericList,
+                type = "damageDone",
+                prev = self.MenuMain,						-- Right Click, previous menu
+                next = self.MenuPlayerSelection,			-- Left Click, next menu
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Damage Taken"] = {
+                name = "Overall Damage Taken",
+                pattern = "Damage taken from %s",
+                display = self.GetOverallList,
+                report = self.ReportGenericList,
+                type = "damageTaken",
+                prev = self.MenuMain,
+                next = self.MenuPlayer,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Healing Done"] = {
+                name = "Overall Healing Done",
                 pattern = "Healing Done on %s",
-                display = self.GetListOverall,
-                report = self.ReportOverallList,
-                type = "healingDone"},
-
-            {   name = "Overall Healing Taken",
+                display = self.GetOverallList,
+                report = self.ReportGenericList,
+                type = "healingDone",
+                prev = self.MenuMain,
+                next = self.MenuPlayer,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Healing Received"] = {
+                name = "Overall Healing Taken",
                 pattern = "Healing Taken on %s",
-                display = self.GetListOverall,
-                report = self.ReportOverallList,
-                type = "healingTaken"},
-
-            {   name = "%s's Damage Done",
+                display = self.GetOverallList,
+                report = self.ReportGenericList,
+                type = "healingTaken",
+                prev = self.MenuMain,
+                next = self.MenuPlayer,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Player Damage Done Breakdown"] = {
+                name = "%s's Damage Done",
                 pattern = "%s's Damage to %s",
                 display = self.GetPlayerList,
-                report = self.ReportPlayerList,
-                type = "damageOut"},
-
-            {   name = "%s's Damage Taken",
+                report = self.ReportGenericList,
+                type = "damageOut",
+                prev = self.MenuPlayer,
+                next = self.MenuPlayerSpell,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Player Damage Taken Breakdown"] = {
+                name = "%s's Damage Taken",
                 pattern = "%s's Damage Taken from %s",
                 display = self.GetPlayerList,
-                report = self.ReportPlayerList,
-                type = "damageIn"},
-
-            {   name = "%s's Healing Done",
+                report = self.ReportGenericList,
+                type = "damageIn",
+                prev = self.MenuPlayer,
+                next = self.MenuPlayerSpell,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Player Healing Done Breakdown"] = {
+                name = "%s's Healing Done",
                 pattern = "%s's Healing Done on %s",
                 display = self.GetPlayerList,
-                reporty = self.ReportPlayerList,
-                type = "healingOut"},
-
-            {   name = "%s's Healing Taken",
-                pattern = "%s's Healing Taken on %s",
+                report = self.ReportGenericList,
+                type = "healingOut",
+                prev = self.MenuPlayer,
+                next = self.MenuPlayerSpell,
+                sort = function(a,b) return a.t > b.t end,
+            },
+            ["Player Healing Received Breakdown"] = {
+                name = "%s's Healing Received",
+                pattern = "%s's Healing Received on %s",
                 display = self.GetPlayerList,
-                report = self.ReportPlayerList,
-                type = "healingIn"},
+                report = self.ReportGenericList,
+                type = "healingIn",
+                prev = self.MenuPlayer,
+                next = self.MenuPlayerSpell,
+                sort = function(a,b) return a.t > b.t end,
+            },
+			["Spell Breakdown"] = {
+				name = "",
+				pattern = "",
+				display = self.GetSpellList,
+				report = self.ReportGenericList,
+				prev = self.MenuPlayer,
+				next = nil,
+				sort = nil,
+			},
+			["Interrupts"] = {
+				name = "Interrupts",
+				display = self.GetInterruptList,
+				sort = function(a,b) return a.t > b.t end,
+			},
+			["Deaths"] = {
+				name = "Deaths",
+				display = self.GetDeathList,
+				sort = function(a,b) return a.t > b.t end,
+			},
+			["Threat"] = {
+				name = "Threat",
+				display = self.GetThreatList,
+				sort = function(a,b) return a.t > b.t end,
+			},
+			["Dispels"] = {
+				name = "Dispels",
+				display = self.GetDispelList,
+				sort = function(a,b) return a.t > b.t end,
+			},
         }
+
+        self.tMainMenu = {
+            ["Damage Done"] = self.tModes["Damage Done"],
+            ["Damage Taken"] = self.tModes["Damage Taken"],
+			["Healing Done"] = self.tModes["Healing Done"],
+			["Healing Received"] = self.tModes["Healing Received"],
+			["Interrupts"] = self.tModes["Interrupts"],
+			["Deaths"] = self.tModes["Deaths"],
+			["Threat"] = self.tModes["Threat"],
+			["Dispels"] = self.tModes["Dispels"],
+		}
+
+		self.tModeFromSubType = {
+			["damageDone"] = self.tModes["Player Damage Done Breakdown"],
+			["damageTaken"] = self.tModes["Player Damage Taken Breakdown"],
+			["healingDone"] = self.tModes["Player Healing Done Breakdown"],
+			["healingTaken"] = self.tModes["Player Healing Received Breakdown"],
+		}
+
+		self.tListFromSubType = {
+			["damageDone"] = "damageOut",
+			["damageTaken"] = "damageIn",
+			["healingDone"] = "healingOut",
+			["healingTaken"] = "healingIn",
+		}
+
+		-- Reverse table
+		self.tSubTypeFromList = {}
+		for k, v in pairs(self.tListFromSubType) do
+			self.tSubTypeFromList[v] = k
+		end
 
 
         self.vars = {
             -- modes
-            nModeIndex = 5,
-            tMode = self.tModes[5],   -- Default to player damage done
+            tMode = self.tModes["Main Menu"],   -- Default to Main Menu
             nLogIndex = 0,
-            tLogDisplay = nil, -- Log currently displayed
-            strLogPlayer = "",     -- Current player log being displayed, default to yourself
             bGrouped = false,
         }
 
-        -- Combat Log
+
+        Apollo.StartTimer("PlayerCheckTimer")
 
         self:NewLogSegment()
 
+		self.vars.tLogDisplay = self.log[1]
 
-		gLog:info("OnLoad finished")
 	end)	-- End Gemini load function
 end
 
@@ -317,9 +421,6 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		self.PlayerId = tostring(self.unitPlayerId)
 		self.PlayerName = self.unitPlayer:GetName()
 
-        self.vars.strLogPlayer = self.PlayerName
-
-	--else
 		Apollo.StartTimer("PlayerCheckTimer")
 	end
 
@@ -342,12 +443,9 @@ end
 -----------------------------------------------------------------------------------------------
 function GalaxyMeter:OnTimer()
 	
-	--if self.tCurrentLog == nil then return end
-	
 	self.tCurrentLog.combat_length = os.clock() - self.tCurrentLog.start
 
 	if self.vars.tLogDisplay == self.tCurrentLog then
-		self.Children.TimeText:SetText("Timer: " .. self:SecondsToString(self.tCurrentLog.combat_length))
 		
 		self:DisplayUpdate()
     else
@@ -383,40 +481,17 @@ end
 
 	
 function GalaxyMeter:StartLogSegment()
-	-- Start new log segment if someone is in combat and we're not, or vice versa
-	--if (groupInCombat and not self.bInCombat) or (not groupInCombat and self.bInCombat) then
-		
-		gLog:info("StartLogSegment()")
 
-        self.tCurrentLog.start = os.clock()
+	gLog:info("StartLogSegment()")
 
-		--self.tCurrentLog = {
-		--	start = os.clock(),
-		--	combat_length = 0,
-        --    name = "",          -- Segment name
-		--	["players"] = {},   -- Array containing players involved in this segment
-		--	["mobs"] = {},      -- Array containing mobs involved in this segment
-		--}
+	self.tCurrentLog.start = os.clock()
 
-		Apollo.StartTimer("CombatTimer")
-		
-		--[[
-		if not self.wndMain:IsVisible() then
-			self:RestoreWindowPosition()
-		
-    		self.wndMain:Show(true)
-		else
-			-- Set Focus if at last position
-			if self.vars.logindex == self.vars.logdisplay + 1 then
-				self.vars.logdisplay = self.vars.logindex
-				self.Children.EncounterButton:SetText(Target)
-				self:ResetDisplayOrder()
-			end
-		end
-		--]]
-	--else	
-	--	Apollo.StopTimer("CombatTimer")
-	--end
+	Apollo.StartTimer("CombatTimer")
+
+	-- Switch to the newly started segment if logindex is still 0 (which means we're looking at 'current' logs)
+	if self.vars.nLogIndex == 0 then
+		self.vars.tLogDisplay = self.tCurrentLog
+	end
 end
 
 
@@ -425,9 +500,9 @@ function GalaxyMeter:NewLogSegment()
     local log = {
         start = 0,
         combat_length = 0,
-        name = "",          -- Segment name
-        ["players"] = {},   -- Array containing players involved in this segment
-        ["mobs"] = {},      -- Array containing mobs involved in this segment
+        name = "Current",	-- Segment name
+        ["players"] = {},	-- Array containing players involved in this segment
+        ["mobs"] = {},		-- Array containing mobs involved in this segment
     }
 
     if self.log then
@@ -437,11 +512,17 @@ function GalaxyMeter:NewLogSegment()
         table.insert(self.log, log)
     end
 
+	-- tCurrentLog always points to the segment in progress, even if it hasnt started yet
     self.tCurrentLog = self.log[1]
 
     if self.vars.nLogIndex == 0 then
-        -- If we were looking at the previous current log, set logdisplay to the new one
-        self.vars.tLogDisplay = self.tCurrentLog
+        -- If we were looking at the previous current log, set logdisplay to that one because the new blank log hasnt been displayed yet
+		-- If logindex is still 0 when starting a new log segment, switch to it
+		if self.log[2] then
+        	self.vars.tLogDisplay = self.log[2]
+		else
+			self.vars.tLogDisplay = self.log[1]
+		end
     else
         self.vars.nLogIndex = self.vars.nLogIndex + 1
         self.vars.tLogDisplay = self.log[self.vars.nLogIndex]
@@ -451,6 +532,7 @@ function GalaxyMeter:NewLogSegment()
 end
 
 
+-- TODO rename this, the actual 'push' occurs in NewLogSegment
 function GalaxyMeter:PushLogSegment()
 	gLog:info("Pushing log segment")
 
@@ -514,6 +596,8 @@ function GalaxyMeter:OnGalaxyMeterOn()
 	self:RestoreWindowPosition()
 
 	self.wndMain:Show(true) -- show the window
+
+	self:DisplayUpdate()
 end
 
 -----------------------------------------------------------------------------------------------
@@ -521,8 +605,6 @@ end
 -----------------------------------------------------------------------------------------------
 function GalaxyMeter:SetGroupLogChannel(GroupLeader)
 	--Simple preventation to keep users from 'bumping' into the channel
-	--self.ChannelName = string.format("GalMet_%s_%s", GroupLeader, string.reverse(GroupLeader))
-	
 	local newChannel = string.format("GalMet_%s_%s_%d", GroupLeader, string.reverse(GroupLeader), GalMet_LogVersion)
 
 	if self.ChannelName ~= newChannel then
@@ -831,6 +913,99 @@ function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageTy
 end
 
 
+function GalaxyMeter:OnCombatLogDispel(tEventArgs)
+	--[[
+	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
+	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
+	local strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
+
+	local strAppend = Apollo.GetString("CombatLog_DispelSingle")
+	if tEventArgs.bRemovesSingleInstance then
+		strAppend = Apollo.GetString("CombatLog_DispelMultiple")
+	end
+
+	local tSpellCount =
+	{
+		["name"] = Apollo.GetString("CombatLog_SpellUnknown"),
+		["count"] = tEventArgs.nInstancesRemoved
+	}
+
+	local strArgRemovedSpellName = tEventArgs.splRemovedSpell:GetName()
+	if strArgRemovedSpellName and strArgRemovedSpellName~= "" then
+		tSpellCount["name"] = strArgRemovedSpellName
+	end
+
+	strResult = String_GetWeaselString(strAppend, strResult, tSpellCount)
+	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", tCastInfo.strColor, strResult))
+	--]]
+end
+
+
+function GalaxyMeter:OnCombatLogInterrupted(tEventArgs)
+	--[[
+	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
+	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
+	local strResult = String_GetWeaselString(Apollo.GetString("CombatLog_TargetInterrupted"), tCastInfo.strTarget, tCastInfo.strSpellName) -- NOTE: strTarget is first, usually strCaster is first
+
+	if tEventArgs.unitCaster ~= tEventArgs.unitTarget then
+		if tEventArgs.splInterruptingSpell and tEventArgs.splInterruptingSpell:GetName() then
+			strResult = String_GetWeaselString(Apollo.GetString("CombatLog_InterruptSourceCaster"), strResult, tEventArgs.unitCaster:GetName(), tEventArgs.splInterruptingSpell:GetName())
+		else
+			strResult = String_GetWeaselString(Apollo.GetString("CombatLog_InterruptSource"), strResult, tEventArgs.unitCaster.GetName())
+		end
+	elseif tEventArgs.strCastResult then
+		strResult = String_GetWeaselString(Apollo.GetString("CombatLog_InterruptSelf"), strResult, tEventArgs.strCastResult)
+	end
+
+	-- TODO: Analyze if we can refactor (this has a unique spell)
+	local strColor = kstrColorCombatLogIncomingGood
+	if tEventArgs.unitCaster == self.unitPlayer then
+		strColor = kstrColorCombatLogOutgoing
+	end
+	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", strColor, strResult))
+	--]]
+end
+
+
+function GalaxyMeter:OnCombatLogModifyInterruptArmor(tEventArgs)
+	--[[
+	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
+	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
+	local strArmorCount = string.format("<T TextColor=\"white\">%d</T>", tEventArgs.nAmount)
+
+	local strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
+	strResult = String_GetWeaselString(Apollo.GetString("CombatLog_InterruptArmor"), strResult, strArmorCount)
+	if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
+		strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), strResult)
+	end
+	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", tCastInfo.strColor, strResult))
+	--]]
+end
+
+
+function GalaxyMeter:OnCombatLogCCStateBreak(tEventArgs)
+	--[[
+	local strBreak = String_GetWeaselString(Apollo.GetString("CombatLog_CCBroken"), tEventArgs.strState)
+	self:PostOnChannel(string.format("<P TextColor=\"%s\">%s</P>", kstrStateColor, strBreak))
+	--]]
+end
+
+
+function GalaxyMeter:OnCombatLogDelayDeath(tEventArgs)
+	--[[
+	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, false, true)
+	local strSaved = String_GetWeaselString(Apollo.GetString("CombatLog_NotDeadYet"), tCastInfo.strCaster, tCastInfo.strSpellName)
+	self:PostOnChannel(string.format("<P TextColor=\"%s\">%s</P>", kstrStateColor, strSaved))
+	--]]
+end
+
+
+function GalaxyMeter:OnCombatLogDeath(tEventArgs)
+	--[[
+	self:PostOnChannel(string.format("<P TextColor=\"%s\">%s</P>", kstrStateColor, Apollo.GetString("CombatLog_Death")))
+	--]]
+end
+
 
 function GalaxyMeter:OnAttackMissed(unitCaster, unitTarget, eMissType, strArgSpellName)
 	if not self.bInCombat then return nil end
@@ -876,6 +1051,12 @@ function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
 
     --local playerUnit = GameLib.GetPlayerUnit()
 
+	if bDebug then
+		if not self.unitPlayer then
+			gLog:warn("GetHealEventType: self.unitPlayer is nil!")
+			return 0
+		end
+	end
 
     if unitCaster == self.unitPlayer then
 
@@ -902,7 +1083,8 @@ function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
 
     if bDebug then
         if not self.unitPlayer then
-            gLog:fatal("GetDamageEventType: self.unitPlayer is nil!")
+            gLog:warn("GetDamageEventType: self.unitPlayer is nil!")
+			return 0
         end
     end
 
@@ -922,6 +1104,13 @@ end
 -- Event handler for incoming and outgoing damage and healing
 -- Currently this only receives events which the player unit initiates or is the target of
 function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical, strArgSpellName)
+
+	self:Rover("unitCaster", unitCaster)
+	self:Rover("unitTarget", unitTarget)
+	self:Rover("eDamageType", eDamageType)
+	self:Rover("strArgSpellName", strArgSpellName)
+
+
 	if not self.bInCombat then return nil end
 
     -- TODO Move this into NewCombatEvent
@@ -975,6 +1164,55 @@ function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, 
 end
 
 
+-- Look up player by name
+function GalaxyMeter:FindMob(tLog, strMobName)
+    return tLog[strMobName]
+end
+
+
+-- Find or create player data table
+-- @return Player data table
+-- TODO Why do I pass in tEvent here instead of strPlayerName?
+function GalaxyMeter:GetMob(tLog, tEvent)
+
+    local strMobName = tEvent.PlayerName
+
+    --gLog:info(string.format("GetPlayer(tLog, %s)", playerName))
+
+    local mob = self:FindMob(tLog, strMobName)
+
+    if not mob then
+        mob = {
+            -- Info
+            name = strMobName,                      -- Name
+            id = tEvent.PlayerId,                   -- GUID?
+            classId = tEvent.CasterClassId,         -- Class Id
+
+            -- Totals
+            damageDone = 0,                         -- Total Damage Done
+            damageTaken = 0,                        -- Total Damage Taken
+            healingDone = 0,                        -- Total Healing Done
+            healingTaken = 0,                       -- Total Healing Taken
+
+            -- Spells
+            damageIn = {},                          -- Damage Taken
+            damageOut = {},                         -- Damage Done
+            healingIn = {},                         -- Healing Taken
+            healingOut = {},                        -- Healing Done
+
+            -- Targets
+            damaged = {},
+            healed = {},
+        }
+
+        tLog[strMobName] = mob
+    end
+
+    self:Rover("tCurrentLog: GetMob", tLog)
+    self:Rover("tEvent: GetMob", tEvent)
+
+    return player
+end
 
 -- Look up player by name
 function GalaxyMeter:FindPlayer(tLog, playerName)
@@ -984,12 +1222,11 @@ end
 
 -- Find or create player data table
 -- @return Player data table
--- TODO Why do I pass in tEvent here instead of strPlayerName?
 function GalaxyMeter:GetPlayer(tLog, tEvent)
 
     local playerName = tEvent.PlayerName
 
-    gLog:info(string.format("GetPlayer(tLog, %s)", playerName))
+    --gLog:info(string.format("GetPlayer(tLog, %s)", playerName))
 
     local player = self:FindPlayer(tLog, playerName)
 
@@ -1011,6 +1248,10 @@ function GalaxyMeter:GetPlayer(tLog, tEvent)
             damageOut = {},                         -- Damage Done
             healingIn = {},                         -- Healing Taken
             healingOut = {},                        -- Healing Done
+
+			-- Targets
+			damaged = {},
+			healed = {},
         }
 
         tLog[playerName] = player
@@ -1061,6 +1302,9 @@ end
 
 --
 function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
+
+	if not tSpell.dmgType then tSpell.dmgType = tEvent.DamageType end
+
     local nAmount = tEvent.Damage
 
     -- Spell Total
@@ -1102,6 +1346,14 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
     tSpell.avg = tSpell.total / tSpell.castCount + tSpell.critCount
 
     tSpell.avgCrit = tSpell.totalCrit / tSpell.critCount
+
+	if not tSpell.max or nAmount > tSpell.max then
+		tSpell.max = nAmount
+	end
+
+	if (not tSpell.min or nAmount < tSpell.min) and nAmount > 0 then
+		tSpell.min = nAmount
+	end
 end
 
 
@@ -1112,11 +1364,19 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     local nAmount = tEvent.Damage
     local activeLog = nil
 
+    if bDebug then
+        if not nAmount then
+            gLog:fatal("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
+            return
+        end
+    end
+
     if (casterType == "Player" or casterType == "Pet") then
         -- Caster is a player or pet
         activeLog = self.tCurrentLog["players"]
+    elseif casterType == "NonPlayer" then
+        activeLog = self.tCurrentLog["mobs"]
     else
-        -- I guess it's a mob?
         -- If we got here after already attempting to not pay attention to incoming damage, then I need to fix this
         --Log = self.tCurrentLog["mobs"]
         gLog:warn("Unknown caster type, going to fail... " .. casterType)
@@ -1142,6 +1402,7 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
         player.healingDone = player.healingDone + nAmount
         player.healingTaken = player.healingTaken + nAmount
+		player.healed[tEvent.Target] = (player.healed[tEvent.Target] or 0) + nAmount
 
         local spellOut = self:GetSpell(player.healingOut, spellName)
         local spellIn = self:GetSpell(player.healingIn, spellName)
@@ -1151,18 +1412,21 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingOut then
         player.healingDone = player.healingDone + nAmount
+		player.healed[tEvent.Target] = (player.healed[tEvent.Target] or 0) + nAmount
+
         spell = self:GetSpell(player.healingOut, spellName)
 
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingIn then
         player.healingTaken = player.healingTaken + nAmount
+
         spell = self:GetSpell(player.healingIn, spellName)
 
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageInOut then
 
         -- Another special case where the spell we cast also damaged ourself?
-
         player.damageDone = player.damageDone + nAmount
         player.damageTaken = player.damageTaken + nAmount
+		player.damaged[tEvent.Target] = (player.damaged[tEvent.Target] or 0) + nAmount
 
         local spellOut = self:GetSpell(player.damageOut, spellName)
         local spellIn = self:GetSpell(player.damageIn, spellName)
@@ -1172,10 +1436,13 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageOut then
         player.damageDone = player.damageDone + nAmount
+		player.damaged[tEvent.Target] = (player.damaged[tEvent.Target] or 0) + nAmount
+
         spell = self:GetSpell(player.damageOut, spellName)
 
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageIn then
         player.damageTaken = player.damageTaken + nAmount
+
         spell = self:GetSpell(player.damageIn, spellName)
 
     else
@@ -1201,149 +1468,84 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
 end
 
---[[
-function GalaxyMeter:UpdateHealingSpell(tEvent)
-    local CasterId = tEvent.CasterId
-    local spellName = tEvent.SpellName
-    local casterType = tEvent.CasterType
-    local nAmount = tEvent.Damage
-
-
-    local activeLog = nil
-
-    if (casterType == "Player" or casterType == "Pet") then
-        -- Caster is a player or pet
-        activeLog = self.tCurrentLog["players"]
-    else
-        -- I guess it's a mob?
-        -- If we got here after already attempting to not pay attention to incoming damage, then I need to fix this
-        --Log = self.tCurrentLog["mobs"]
-        gLog:warn("Unknown caster type, going to fail... " .. casterType)
-    end
-
-    if not activeLog then
-        gLog:fatal("Nil log after checking casterType: " .. casterType)
-        return
-    end
-
-
-    -- Finds existing or creates new player entry
-    -- Make sure CombatEvent.classid is properly set to the player if their pet used a spell!!!
-    local player = self:GetPlayer(activeLog, tEvent)
-
-    -- Break into healing done/received handling
-    local spell = nil
-
-    -- Player tally and spell type
-    if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
-
-        -- Special handling for self healing, we want to count this as both healing done and received
-        -- Maybe add option to enable tracking for this
-
-        player.healingDone = player.healingDone + nAmount
-        player.healingTaken = player.healingTaken + nAmount
-
-        local spellOut = self:GetSpell(player.healingOut, spellName)
-        local spellIn = self:GetSpell(player.healingIn, spellName)
-
-        self:TallySpellAmount(spellOut, nAmount)
-        self:TallySpellAmount(spellIn, nAmount)
-
-    elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingOut then
-        player.healingDone = player.healingDone + nAmount
-        spell = self:GetSpell(player.healingOut, spellName)
-
-    elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingIn then
-        player.healingTaken = player.healingTaken + nAmount
-        spell = self:GetSpell(player.healingIn, spellName)
-
-    else
-        gLog:fatal(string.format("Unknown heal type %d in UpdateHealingSpell!", tEvent.TypeId))
-        gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
-                                spellName, CasterId, tEvent.Target, nAmount))
-    end
-
-    if spell then
-        self:TallySpellAmount(spell, nAmount)
-    end
-end
-
-function GalaxyMeter:UpdateDamageSpell(tEvent)
-	local CasterId = tEvent.CasterId
-	local spellName = tEvent.SpellName
-    local casterType = tEvent.CasterType
-	local activeLog = nil
-	
-
-    if (casterType == "Player" or casterType == "Pet") then
-        -- Caster is a player or pet
-        activeLog = self.tCurrentLog["players"]
-    else
-        -- I guess it's a mob?
-        -- If we got here after already attempting to not pay attention to incoming damage, then I need to fix this
-        --Log = self.tCurrentLog["mobs"]
-        gLog:warn(string.format("Unknown caster type '%s', going to fail... Id: %s, Spell: %s", casterType, CasterId, spellName))
-    end
-
-    if not activeLog then
-        gLog:fatal("Nil log after checking casterType: " .. casterType)
-        return
-    end
-
-
-    local nDamage = tEvent.Damage
-
-    -- Have seen a problem here using an Engineer where nDamage is nil, debug
-    if nDamage == nil then
-        self:Rover("EngError CombatEvent", tEvent)
-        return
-    end
-
-    -- Finds existing or creates new player entry
-    -- Make sure CombatEvent.classid is properly set to the player if their pet used a spell!!!
-    local player = self:GetPlayer(activeLog, tEvent)
-
-    -- Player total damage
-    player.damageDone = player.damageDone + nDamage
-
-    -- Finds existing or create new spell entry
-    local spell = self:GetSpell(player.damageOut, spellName)
-
-    self:TallySpellAmount(tEvent, spell)
-end
---]]
-
-
-function GalaxyMeter:CompareDisplay(Index, Text)
-	if not self.DisplayOrder[Index] or ( self.DisplayOrder[Index] and self.DisplayOrder[Index] ~= Text ) then
-		self.DisplayOrder[Index] = Text
-		return true
-	end
-end
-
 
 
 -----------------------------------------------------------------------------------------------
 -- List Generators
 --
--- These are pretty similar... Consider consolidating them into a more generic method
+-- TODO These are pretty similar... Consider consolidating them into a more generic method
 -----------------------------------------------------------------------------------------------
 
+--
 -- @param tLogSegment Log entry currently being displayed
 -- @param type Segment subtype, healingIn/Out etc
-function GalaxyMeter:GetOverallList(tLogSegment, subType)
+-- @return tList, tTotal Overall list entries, total
+-- Do we need an option for players/mobs?
+function GalaxyMeter:GetOverallList()
+
+	local tLogSegment = self.vars.tLogDisplay
+	local mode = self.vars.tMode
+
+	-- What if its overall mob dmg? Grab segment type from mode
+	local tSegmentType = tLogSegment.players
 
     local tList = {}
+	local tTotal = {}
 
-    for k,v in pairs(tLogSegment.players) do
+    for k, v in pairs(tSegmentType) do
+
+		local nAmount = v[mode.type]
+
+		tTotal.t = (tTotal.t or 0) + nAmount
+
         table.insert(tList, {
             n = k,
-            t = v[subType],
+            t = nAmount,
             c = self.ClassToColor[v.classId],
-        })
-    end
+			click = function(m, btn)
+				gLog:info("OverallMenu, current mode =")
+				gLog:info(mode)
 
-    return tList, nil
+				-- Call next/prev
+				-- args are the specific player log table, subType
+				if btn == 0 then
+					gLog:info("Overall -> Next " .. k .. " " .. mode.type)
+
+					--gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
+
+					self.vars.tCurrentPlayer = tSegmentType[k]
+
+					self:PushMode()
+					-- damageDone -> "Player Damage Done Breakdown", etc
+					self.vars.tMode = self.tModeFromSubType[mode.type]
+
+					self.vars.tCurrentPlayerSpells = tSegmentType[k][self.vars.tMode.type]
+
+					self:Rover("tCurrentPlayer", self.vars.tCurrentPlayer)
+					self:Rover("tCurrentPlayerSpells", self.vars.tCurrentPlayerSpells)
+
+					self.bDirty = true
+
+				elseif btn == 1 and mode.prev then
+					gLog:info("Overall -> Prev")
+					--m.Rover(m, "GetOverallList: tList", m.vars.tMode)
+
+					self.vars.tMode.prev(m, v, mode.type)
+
+					self.bDirty = true
+				end
+
+			end
+        })
+	end
+
+	local strTotalText = string.format("%s - %d (%.2f) - %s",
+		string.format(mode.pattern, tLogSegment.name),
+		total,
+		total / tLogSegment.combat_length,
+		self:SecondsToString(tLogSegment.combat_length))
+
+    return tList, tTotal, mode.name, strTotalText
 end
 
 
@@ -1355,52 +1557,111 @@ end
 -- @return Tables containing player damage done
 --    1) Ordered list of individual spells
 --    2) Total
-function GalaxyMeter:GetPlayerList(tLogSegment, subType, strModeName, playerName)
+function GalaxyMeter:GetPlayerList()
     local tList = {}
 
+	-- These should have already been set
+	local tLogSegment = self.vars.tLogDisplay
+	local tPlayerLog = self.vars.tCurrentPlayer
+	local mode = self.vars.tMode
+
+	-- convert to damageDone/damageTaken
+	local dmgTypeTotal = self.tSubTypeFromList[mode.type]
+
     local tTotal = {
-        n = strModeName,
-        --n = tPlayerLog.playerName .. "'s Total Damage",
-        t = tLogSegment.players[playerName].damageDone,
-        c = kDamageToColor.Self
+        n = string.format("%s's %s", tPlayerLog.playerName, mode.type),
+        t = tPlayerLog[dmgTypeTotal], -- "Damage to XXX"
+        c = kDamageStrToColor.Self
     }
 
-    for k,v in pairs(tLogSegment.players[playerName][subType]) do
+    for k, v in pairs(tPlayerLog[mode.type]) do
         table.insert(tList, {
             n = k,
             t = v.total,
-            c = kHostilityToColor[3]
+            --c = kHostilityToColor[3],
+			c = kDamageTypeToColor[v.dmgType],
+			tStr = nil,
+			click = function(m, btn)
+				if btn == 0 then
+					gLog:info("Player -> Next")
+
+					self:PushMode()
+
+					self.vars.tCurrentSpell = v
+
+					self.vars.tMode = self.tModes["Spell Breakdown"]
+
+					self.bDirty = true
+
+				elseif btn == 1 then
+					gLog:info("Player -> Prev")
+					--m.Rover(m, "GetOverallList: tList", m.vars.tMode)
+
+					local tMode = self:PopMode()
+					if tMode then
+						self.vars.tMode = tMode
+						self.bDirty = true
+					end
+
+				end
+			end
         })
-    end
+	end
 
-    return tList, tTotal
+	local strDisplayText = string.format("%s's %s", tPlayerLog.playerName, mode.type)
+
+	local strTotalText = string.format("%s on %s - %d (%.2f) - %s",
+		--"%s's blah on %s"
+		string.format(mode.pattern, strPlayerName, mode.name, tLogSegment.name),
+		total,
+		total / tLogSegment.combat_length,
+		self:SecondsToString(tLogSegment.combat_length))
+
+    return tList, tTotal, strDisplayText, strTotalText
 end
 
---[[
--- @param tLogSegment Log entry currently being displayed
-function GalaxyMeter:DisplayPlayerList(tLogSegment, strModeName, type)
 
-    -- This should be safe if the above is there
-    local PlayerId = self.PlayerName
+function GalaxyMeter:GetSpellList()
+	local tSpell = self.vars.tCurrentSpell
 
-    if self.wndMain:IsVisible() and tLogSegment.players[PlayerId] then
+	if not tSpell then
+		gLog:fatal("GetSpellList() nil tSpell")
+		return
+	end
 
-        local tPlayerList = self:GetPlayerList(tLogSegment.players[PlayerId], type)
+	local cFunc = function(m, btn)
+		if btn == 1 then
+			local tMode = self:PopMode()
+			if tMode then
+				self.vars.tMode = tMode
+				self.bDirty = true
+			end
+		end
+	end
 
-        self:DisplayList(tPlayerList)
-    end
+	local tList = {
+		{n = string.format("Total Damage (%s)", kDamageTypeToString[tSpell.dmgType]), tStr = tSpell.total, click = cFunc},
+		{n = "Cast Count/Avg", tStr = string.format("%d - %.2f", tSpell.castCount, tSpell.avg), click = cFunc},
+		{n = "Crit Damage", tStr = string.format("%d (%.2f%%)", tSpell.totalCrit, tSpell.totalCrit / tSpell.total * 100), click = cFunc},
+		{n = "Crit Count/Avg/Rate", tStr = string.format("%d - %.2f (%.2f%%)", tSpell.critCount, tSpell.avgCrit, tSpell.critCount / tSpell.castCount * 100), click = cFunc},
+		{n = "Total Shields", tStr = tSpell.totalShield, click = cFunc},
+		{n = "Total Absorb", tStr = tSpell.tottalAbsorption, click = cFunc},
+		{n = "Blocks", tStr = tSpell.blocks, click = cFunc},
+		{n = "Dodges", tStr = tSpell.dodges, click = cFunc},
+		{n = "Misses", tStr = tSpell.misses, click = cFunc},
+	}
+
+	if tSpell.max and tSpell.min then
+		table.insert(tList, 5, {n = "Min/Max", tStr = string.format("%d / %d", tSpell.min, tSpell.max), click = cFunc})
+	end
+
+	local strDisplayText = string.format("%s's %s", self.vars.tCurrentPlayer.playerName, tSpell.name)
+
+	local strTotalText = strDisplayText .. " for " .. self.vars.tLogDisplay.name
+
+	return tList, nil, strDisplayText, strTotalText
 end
 
--- @param tLogSegment Log entry currently being displayed
-function GalaxyMeter:DisplayOverallList(tLogSegment, type)
-    --if self.wndMain:IsVisible() then
-
-        return self:GetOverallList(tLogSegment, type)
-
-        --self:DisplayList(tPlayerList)
-    --end
-end
---]]
 
 
 -----------------------------------------------------------------------------------------------
@@ -1411,114 +1672,37 @@ end
 -- Report current log to X channel
 function GalaxyMeter:OnReport( wndHandler, wndControl, eMouseButton )
 
-    local mode = self.vars.tMode
+	local mode = self.vars.tMode
 
-    local tLogSegment = self:GetLogDisplay()
-    --[[
-    if not tLogSegment then
+    local tReportStrings = mode.report(mode.display())
 
-        -- When reporting, combat has -usually- stopped, so if logdisplay = 0 then
-        -- currentlog will have already been pushed, so we should index log[1], which would
-        -- have been the previous
-        if self.vars.logdisplay == 0 and self.log[1] then
-            tLogSegment = self.log[1]
-        else
-            gLog:warn("nil log in OnReport, display index: " .. self.vars.logdisplay)
-        end
-    end
-    --]]
+	-- Report to guild, eventually this will be configurable
+	local chan = "g"
 
-
-    if bDebug then
-        self:Rover("vars: OnReport", self.vars)
-
-        if self.vars.strLogPlayer == "" then
-            gLog:fatal("OnReport: vars.logplayer not set")
-            return
-        end
-
-        if not tLogSegment.players[self.vars.strLogPlayer] then
-            gLog:fatal(string.format("OnReport: tLogSegment.players[%s] is nil", self.vars.strLogPlayer))
-            return
-        end
-    end
-
-    -- TODO: Properly detect whos report we're looking at
-    local tPlayerLog = tLogSegment.players[self.vars.strLogPlayer]
-
-    self:Rover("tPlayerLog: OnReport", tPlayerLog)
-
-    -- We don't really want the mode name here.. need to pass in the report type
-
-    -- Calls ReportOverallList, ReportPlayerList, etc
-    local tReportStrings = mode.report(self, tLogSegment, mode.type, tPlayerLog.playerName)
-
-    -- Report to guild, eventually this will be configurable
-    for i=1,#tReportStrings do
-        ChatSystemLib.Command("/g " .. tReportStrings[i])
+    for i = 1, #tReportStrings do
+        ChatSystemLib.Command("/" .. chan .. " " .. tReportStrings[i])
     end
 
 end
 
 --[[
--- @param tLog Log entry pertaining to segment of interest
-function GalaxyMeter:BuildPlayerReport(tLog, strPlayerName, Listing)
-    table.sort(Listing, function(a,b) return a.t > b.t end)
+function GalaxyMeter:ReportPlayerList()
 
-    local total = 0
-    local tStrings = {}
+    local tPlayerList, tTotal, strDisplayText = self:GetPlayerList()
 
-    local combatLength = tLog.combat_length
+	local tLogSegment = self.vars.tLogDisplay
+	local mode = self.vars.tMode
+	local combatLength = tLogSegment.combat_length
+	local tStrings = {}
+	local total = tTotal.t
 
-    for i=1,#Listing do
-        local v = Listing[i]
-        if i == 1 then
-            total = v.t
-        else
-            table.insert(tStrings, string.format("%d) %s - %s (%.2f)  %.2f%%",
-                i - 1, v.n, v.t, v.t / combatLength, v.t / total * 100))
-        end
-    end
-
-
-    table.insert(tStrings, 1, string.format("%s's %s on %s - %d (%.2f) - %s",
-        strPlayerName,
-        tReportTypes[self.vars.mode],
-        tLog.name,  --
-        total,
-        total / combatLength,
-        self:SecondsToString(combatLength)))
-
-    return tStrings
-end
---]]
-
-
--- @param tLogSegment Log segment pertaining to the SEGMENT of interest
--- @param subType Damage In or Out
--- @param strModeName
--- @param strPlayerName Player of interest in the log segment
-function GalaxyMeter:ReportPlayerList(tLogSegment, subType, strModeName, strPlayerName)
-
-    -- Here we should:
-    -- 1) Get log entry pertaining to the player of interest
-    -- 2) Build report strings
-    -- 3) Return strings to the report handler
-
-    local tPlayerLog = tLogSegment.players[strPlayerName]
-
-    --GetPlayerList(tLogSegment, subType, strModeName, playerName)
-    local tPlayerList = self:GetPlayerList(tLogSegment, subType, strModeName, strPlayerName)
-
-    table.sort(tPlayerList, function(a,b) return a.t > b.t end)
-
-    local combatLength = tLogSegment.combat_length
-    local tStrings = {}
-    local total = tPlayerList[1].t
+	if mode.sort then
+    	table.sort(tPlayerList, mode.sort)
+	end
 
     table.insert(tStrings, string.format("%s on %s - %d (%.2f) - %s",
         --"%s's blah on %s"
-        string.format(self.varstMode.pattern, strPlayerName, self.vars.tMode.name, tLogSegment.name),
+        string.format(mode.pattern, strPlayerName, mode.name, tLogSegment.name),
         --strPlayerName,
         --tReportTypes[self.vars.mode],
         --tLogSegment.name,  --
@@ -1526,6 +1710,7 @@ function GalaxyMeter:ReportPlayerList(tLogSegment, subType, strModeName, strPlay
         total / combatLength,
         self:SecondsToString(combatLength)))
 
+	-- This is the same as in report overall list
     for i=1,#tPlayerList do
         local v = tPlayerList[i]
         table.insert(tStrings, string.format("%d) %s - %s (%.2f)  %.2f%%",
@@ -1536,27 +1721,28 @@ function GalaxyMeter:ReportPlayerList(tLogSegment, subType, strModeName, strPlay
 end
 
 
-function GalaxyMeter:ReportOverallList(tLogSegment, subType, strModeName, strPlayerName)
-    --GetOverallList(tLogSegment, subType)
-    local tPlayerList = self:GetOverallList(tLogSegment, subType)
+-- @param tList List generated by GetOverallList
+function GalaxyMeter:ReportOverallList()
 
-    table.sort(tPlayerList, function(a,b) return a.t > b.t end)
+    local tPlayerList, tTotal, strDisplayText = self:GetOverallList()
 
-    local combatLength = tLogSegment.combat_length
-    local tStrings = {}
+	local tLogSegment = self.vars.tLogDisplay
+	local mode = self.vars.tMode
+	local combatLength = tLogSegment.combat_length
+	local tStrings = {}
+	local total = tTotal.t or 0
 
-    -- Get total
-    local total = 0
-    for i=1,#tPlayerList do
-        total = total + tPlayerList[i].t
-    end
+	if mode.sort then
+    	table.sort(tPlayerList, mode.sort)
+	end
 
     table.insert(tStrings, string.format("%s - %d (%.2f) - %s",
-        string.format(self.vars.tMode.pattern, tLogSegment.name),
+        string.format(mode.pattern, tLogSegment.name),
         total,
         total / combatLength,
         self:SecondsToString(combatLength)))
 
+	-- This is the same as in report player list
     for i=1,#tPlayerList do
         local v = tPlayerList[i]
         table.insert(tStrings, string.format("%d) %s - %s (%.2f)  %.2f%%",
@@ -1565,26 +1751,81 @@ function GalaxyMeter:ReportOverallList(tLogSegment, subType, strModeName, strPla
 
     return tStrings
 end
+--]]
+
+-- @param tList List generated by Get*List
+function GalaxyMeter:ReportGenericList(tList, tTotal, strDisplayText, strTotalText)
+
+	local tLogSegment = self.vars.tLogDisplay
+	local mode = self.vars.tMode
+	local combatLength = tLogSegment.combat_length
+	local tStrings = {}
+	local total = tTotal.t or 0
+
+	if mode.sort then
+		table.sort(tPlayerList, mode.sort)
+	end
+
+	if strTotalText and strTotalText ~= "" then
+		table.insert(tStrings, strTotalText)
+	end
+
+	for i = 1, #tList do
+		local v = tPList[i]
+		table.insert(tStrings, string.format("%d) %s - %s (%.2f)  %.2f%%",
+			i, v.n, v.t, v.t / tLogSegment.combat_length, v.t / total * 100))
+	end
+
+	return tStrings
+end
 
 
--- Main list display function, this will assemble list items and draw them to the window
--- TODO Maybe combine this with Get*List or something to avoid to much looping? Also we call GetLogDisplayTimer
+function GalaxyMeter:CompareDisplay(Index, Text)
+	if not self.DisplayOrder[Index] or ( self.DisplayOrder[Index] and self.DisplayOrder[Index] ~= Text ) then
+		self.DisplayOrder[Index] = Text
+		return true
+	end
+end
+
+
+-- Main list display function, this will assemble list items and set their click handler
+-- TODO Maybe combine this with Get*List or something to avoid to much looping?
 function GalaxyMeter:DisplayList(Listing)
-	--table.sort(Listing, function(a,b) return a.t > b.t end)
+
+	--self:Rover("DisplayList: List", Listing)
 
 	local Arrange = false
 	for k,v in ipairs(Listing) do		
 		if not self.tItems[k] then
 			self:AddItem(k)
 		end
+
 		local wnd = self.tItems[k]
+
 		if self:CompareDisplay(k, v.n) then
+			--gLog:info(string.format("CompareDisplay true tItem[%s] n=%s", k, v.n))
+			wnd.id = wnd.wnd:GetId()
 			wnd.left_text:SetText(v.n)
 			wnd.bar:SetBarColor(v.c)
 			Arrange = true
-		end		
-		wnd.right_text:SetText(string.format("%s (%.2f)", v.t, v.t / self:GetLogDisplayTimer()))
-		wnd.bar:SetProgress(v.t / Listing[1].t)
+		end
+
+		wnd.OnClick = v.click
+
+		if v.t then
+			-- v.t is a total, format a string showing the total and total over time as dps
+			wnd.right_text:SetText(string.format("%s (%.2f)", v.t, v.t / self:GetLogDisplayTimer()))
+
+			wnd.bar:SetProgress(v.t / Listing[1].t)
+		else
+			-- v.tStr is a preformatted total string
+			if v.tStr then
+				wnd.right_text:SetText(v.tStr)
+			else
+				wnd.right_text:SetText("")
+			end
+			wnd.bar:SetProgress(1)
+		end
 	end
 	
 	-- Trim Remainder
@@ -1606,76 +1847,63 @@ function GalaxyMeter:DisplayUpdate()
 
     if not self.wndMain:IsVisible() then
         return
-    end
-
-    local tLogSegment = self:GetLogDisplay()
-
-    if not tLogSegment then
-        gLog:warn("nil Log in DisplayUpdate")
-        return
-    end
-
-    local mode = self.vars.tMode
-
-    if bDebug then
-
-        self:Rover("DisplayUpdate: vars", self.vars)
-
-        if self.vars.strLogPlayer == "" then
-            gLog:fatal("DisplayUpdate: vars.logplayer not defined")
-            return
-        end
-
-        if not tLogSegment.players[self.vars.strLogPlayer] then
-            gLog:fatal(string.format("DisplayUpdate: log.players[%s] not defined", self.vars.strLogPlayer))
-            return
-        end
-
-    end
+	end
 
 
-    -- Format the 'total' line
-    -- If its an overall list we want it to say "Overall Damage Done" etc
-    -- If its a player list it should say "Player's Damage Done on Whatever"
+	local mode = self.vars.tMode
 
-    local strPlayerName = tLogSegment.players[self.vars.strLogPlayer].name
+	--local tLogSegment, strPlayerName, strDisplayText = self:GetListData(mode)
 
-    if not strPlayerName or strPlayerName == "" then
-        strPlayerName = self.PlayerName
-    end
-
-    local displayText = string.format(mode.pattern, strPlayerName, tLogSegment.name)
-
-    --n = string.format(strModePattern, tPlayerLog.playerName),
-
-    -- Text below the meter
-    self.Children.DisplayText:SetText(mode.name)
-
+    -- Calls:
     --
+    -- GetOverallList(tLogSegment, subType)
+	-- name = "Overall Damage Done"
+	-- pattern = "Damage on %s"
+	--
+    -- GetPlayerList(tLogSegment, subType, strPlayerName)
+	-- name = "%s's Damage Done"
+	-- pattern = "%s's Damage to %s"
 
-    -- Calls GetOverallList(tLogSegment, subType), GetPlayerList(tLogSegment, subType, strModeName, strPlayerName)
-    local tList, tTotal = mode.display(self, tLogSegment, mode.type, displayText, strPlayerName)
+	--[[
+    local tList, tTotal, strDisplayText = mode.display(self,			-- Self reference needed for calling object method
+										tLogSegment,	--
+										mode.type,		-- Subtable in this segment
+										strPlayerName)	-- Unused for Overall Lists
+	--]]
 
-    --if option to show totals
-    if tTotal ~= nil then
-        table.insert(tList, 1, tTotal)
+	local tList, tTotal, strDisplayText = mode.display(self)
+
+    if mode.sort ~= nil then
+        table.sort(tList, mode.sort)
     end
 
-    table.sort(tList, function(a,b) return a.t > b.t end)
+	-- if option to show totals
+	if tTotal ~= nil then
+		tTotal.n = strDisplayText
+		tTotal.click = function(m, btn)
+			if btn == 1 then
+				local tMode = self:PopMode()
+				if tMode then
+					self.vars.tMode = tMode
+					self.bDirty = true
+				end
+			end
+		end
 
-    self:Rover("DisplayUpdate: tList", tList)
+		table.insert(tList, 1, tTotal)
+	end
+
+	-- Text below the meter
+	self.Children.DisplayText:SetText(strDisplayText)
+	self.Children.TimeText:SetText("Timer: " .. self:SecondsToString(self.tCurrentLog.combat_length))
 
     self:DisplayList(tList)
 end
 
 
-function GalaxyMeter:ResetDisplayOrder()
-	self.DisplayOrder = {}
-end
-
 
 function GalaxyMeter:RefreshDisplay()
-    self:ResetDisplayOrder()
+	self.DisplayOrder = {}
     self:DisplayUpdate()
 end
 
@@ -1700,35 +1928,6 @@ function GalaxyMeter:OnClearAll()
 	self.log = {}
 	self.vars.nLogIndex = 0
 	self.vars.tLogDisplay = 0
-    self.vars.strLogPlayer = ""
-	self:RefreshDisplay()
-end
-
-
-function GalaxyMeter:OnModeLeft( wndHandler, wndControl, eMouseButton )
-	self.vars.nModeIndex = self.vars.nModeIndex - 1
-	if self.vars.nModeIndex < 1 then
-		self.vars.nModeIndex = #self.tModes
-    end
-
-    self.vars.tMode = self.tModes[self.vars.nModeIndex]
-	
-	self:Rover("vars", self.vars)
-	
-	self:RefreshDisplay()
-end
-
-
-function GalaxyMeter:OnModeRight( wndHandler, wndControl, eMouseButton )
-	self.vars.nModeIndex = self.vars.nModeIndex + 1
-	if self.vars.nModeIndex > #self.tModes then
-		self.vars.nModeIndex = 1
-    end
-
-    self.vars.tMode = self.tModes[self.vars.nModeIndex]
-	
-	self:Rover("vars", self.vars)
-	
 	self:RefreshDisplay()
 end
 
@@ -1738,13 +1937,14 @@ function GalaxyMeter:OnEncounterDropDown( wndHandler, wndControl, eMouseButton )
 		self.wndEncList:Show(true)
 		
 		-- Newest Entry at the Top
-		for i=#self.log, 1, -1 do
+		--for i = #self.log, 1, -1 do
+		for i = 1, #self.log do
 			local wnd = Apollo.LoadForm("GalaxyMeter.xml", "EncounterItem", self.Children.EncItemList, self)
 			table.insert(self.tEncItems, wnd)
 			
 			local TimeString = self:SecondsToString(self.log[i].combat_length)
 			
-			wnd:FindChild("Text"):SetText(self.log[i].id .. " - " .. TimeString)
+			wnd:FindChild("Text"):SetText(self.log[i].name .. " - " .. TimeString)
 			wnd:FindChild("Highlight"):Show(false)
 			wnd:SetData(i)
 		end
@@ -1776,6 +1976,88 @@ function GalaxyMeter:SecondsToString(time)
 end
 
 
+-----------------------------------------------------------------------------------------------
+-- Menu Functions
+-----------------------------------------------------------------------------------------------
+
+-- Pop last mode off of the stack
+function GalaxyMeter:PopMode()
+	if self.vars.tModeLast and #self.vars.tModeLast > 0 then
+		return table.remove(self.vars.tModeLast)
+	end
+
+	return nil
+end
+
+
+-- Push mode onto the stack
+function GalaxyMeter:PushMode()
+	self.vars.tModeLast = self.vars.tModeLast or {}
+
+	table.insert(self.vars.tModeLast, self.vars.tMode)
+end
+
+
+-- TODO Generalize this into DisplayMenu or something
+function GalaxyMeter:DisplayMainMenu()
+    local tMenuList = {}
+
+	--gLog:info("DisplayMainMenu()")
+
+    for k,v in pairs(self.tMainMenu) do
+        table.insert(tMenuList, {
+            n = k,
+            c = kDamageStrToColor["DamageType_Physical"],
+			click = function(m, btn)
+
+				if v and self.vars.tLogDisplay.start > 0 and btn == 0 then
+					gLog:info("MainMenu, next mode =")
+					gLog:info(v)
+
+					-- Call next on CURRENT mode, v arg is next mode
+					--m.vars.tMode.next(m, v)
+					self:PushMode()
+					self.vars.tMode = v
+
+					self.bDirty = true
+				end
+			end
+        })
+	end
+
+	--self:Rover("DisplayMainMenu: tMenuList", tMenuList)
+
+    return tMenuList, nil, "Main Menu"
+end
+
+
+
+-- Set current mode to the main menu
+function GalaxyMeter:MenuMain()
+
+	self.vars.tMode = self.tModes["Main Menu"]
+
+	self:Rover("MenuMain: tItems", self.tItems)
+end
+
+
+-- A player was clicked from an Overall menu, update the mode to the appropriate selection
+-- @param tLogPlayer Selected player
+-- @param subType log subtype damageIn/Out etc
+--[[
+function GalaxyMeter:MenuPlayerSelection(tLogPlayer, subType)
+
+	gLog:info("MenuPlayerSelection()")
+	gLog:info(tLogPlayer)
+
+	gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
+
+	-- damageDone -> "Player Damage Done Breakdown"
+	self.vars.tModeLast = self.vars.tMode
+	self.vars.tMode = self.tModeFromSubType[subType]
+end
+--]]
+
 
 -----------------------------------------------------------------------------------------------
 -- ItemList Functions
@@ -1791,6 +2073,7 @@ function GalaxyMeter:DestroyItemList()
 	self.tItems = {}
 end
 
+
 -- add an item into the item list
 function GalaxyMeter:AddItem(i)
 	-- load the window item for the list item
@@ -1798,20 +2081,68 @@ function GalaxyMeter:AddItem(i)
 	
 	-- keep track of the window item created
 	self.tItems[i] = { wnd = wnd }
-	self.tItems[i].bar = wnd:FindChild("PercentBar")
-	self.tItems[i].left_text = wnd:FindChild("LeftText")
-	self.tItems[i].right_text = wnd:FindChild("RightText")	
 
-	self.tItems[i].bar:SetMax(1)
-	self.tItems[i].bar:SetProgress(0)
-	self.tItems[i].left_text:SetTextColor(kcrNormalText)
-	--end
+    local item = self.tItems[i]
+
+	item.id = wnd:GetId()
+    item.bar = wnd:FindChild("PercentBar")
+    item.left_text = wnd:FindChild("LeftText")
+    item.right_text = wnd:FindChild("RightText")
+
+    item.bar:SetMax(1)
+    item.bar:SetProgress(0)
+    item.left_text:SetTextColor(kcrNormalText)
+
+	wnd:FindChild("Highlight"):Show(false)
+
 	wnd:SetData(i)
+
+    self:Rover("tItems", self.tItems)
 	
 	return self.tItems[i]
 end
 
+
+function GalaxyMeter:OnListItemMouseEnter( wndHandler, wndControl, x, y )
+	wndHandler:FindChild("Highlight"):Show(true)
+end
+
+
+function GalaxyMeter:OnListItemMouseExit( wndHandler, wndControl, x, y )
+	wndHandler:FindChild("Highlight"):Show(false)
+end
+
+
+function GalaxyMeter:OnListItemButtonUp( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
+    if self.tListItemClicked == wndControl then
+		self.tListItemClicked = nil
+        gLog:info(string.format("control %s id %d, name '%s', button %d", tostring(wndControl), wndControl:GetId(), wndControl:GetName(), tostring(eMouseButton)))
+
+        local id = wndControl:GetId()
+
+        -- find relevant clicked menu item based on id of clicked control
+        for i,v in ipairs(self.tItems) do
+            if v.id == id and v.OnClick then
+				gLog:info("Calling OnClick()")
+				gLog:info(v)
+                v.OnClick(self, eMouseButton)
+				if self.bDirty then
+					self.bDirty = false
+					self:RefreshDisplay()
+				end
+            end
+        end
+	end
+end
+
+
+function GalaxyMeter:OnListItemButtonDown( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY, bDoubleClick, bStopPropagation )
+    self.tListItemClicked = wndControl
+end
+
+
 -- when a list item is selected
+--[[
 function GalaxyMeter:OnListItemSelected(wndHandler, wndControl)
     -- make sure the wndControl is valid
     if wndHandler ~= wndControl then
@@ -1830,6 +2161,7 @@ function GalaxyMeter:OnListItemSelected(wndHandler, wndControl)
 	wndItemText = self.wndSelectedListItem:FindChild("LeftText")
     wndItemText:SetTextColor(kcrSelectedText)
 end
+--]]
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter Config
@@ -1873,38 +2205,30 @@ end
 ---------------------------------------------------------------------------------------------------
 
 function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
-	self.tLogDisplay = wndHandler:GetData()
-	self.Children.EncounterButton:SetText(self.log[self.tLogDisplay].id)
-	self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.log[self.tLogDisplay].combat_length))
+	local logIdx = wndHandler:GetData()
+
+	self.vars.tLogDisplay = self.log[logIdx]
+	-- Should we do a sanity check on the current mode? For now just force back to main menu
+	self.vars.tMode = self.tModes["Main Menu"]
+
+	self.Children.EncounterButton:SetText(self.vars.tLogDisplay.name)
+	self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.vars.tLogDisplay.combat_length))
 	
 	self:HideEncounterDropDown()
 	
 	self:RefreshDisplay()
 end
 
+
 function GalaxyMeter:OnEncounterItemMouseEnter( wndHandler, wndControl, x, y )
 	wndHandler:FindChild("Highlight"):Show(true)
 end
+
 
 function GalaxyMeter:OnEncounterItemMouseExit( wndHandler, wndControl, x, y )
 	wndHandler:FindChild("Highlight"):Show(false)
 end
 
----------------------------------------------------------------------------------------------------
--- ListItem Functions
----------------------------------------------------------------------------------------------------
-
-function GalaxyMeter:OnListItemMouseEnter( wndHandler, wndControl, x, y )
-	--gLog:info("OnListItemMouseEnter()")
-end
-
-function GalaxyMeter:OnListItemButtonUp( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
-	--gLog:info("OnListItemButtonUp()")
-end
-
-function GalaxyMeter:OnListItemButtonDown( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY, bDoubleClick, bStopPropagation )
-	--gLog:info("OnListItemButtonDown()")
-end
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter Instance
