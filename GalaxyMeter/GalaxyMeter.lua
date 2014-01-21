@@ -181,6 +181,8 @@ function GalaxyMeter:OnLoad()
 		Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
 		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
 		Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
+		Apollo.RegisterEventHandler("CombatLogDamage",					"OnCombatLogDamage", self)
+		Apollo.RegisterEventHandler("CombatLogHeal",					"OnCombatLogHeal", self)
 
 		-- Chat: Shared Logging
 		Apollo.RegisterEventHandler("Group_Join",						"OnGroupJoin", self)
@@ -449,8 +451,8 @@ function GalaxyMeter:OnTimer()
 		
 		self:DisplayUpdate()
     else
-        gLog:info("logdisplay: " .. tostring(self.vars.tLogDisplay))
-        gLog:info("tCurrentLog: " .. tostring(self.tCurrentLog))
+        --gLog:info("logdisplay: " .. tostring(self.vars.tLogDisplay))
+        --gLog:info("tCurrentLog: " .. tostring(self.tCurrentLog))
 	end
 end
 
@@ -536,8 +538,8 @@ end
 function GalaxyMeter:PushLogSegment()
 	gLog:info("Pushing log segment")
 
-    self:Rover("lastLog", self.tCurrentLog)
-    self:Rover("log", self.log)
+    --self:Rover("lastLog", self.tCurrentLog)
+    --self:Rover("log", self.log)
 
     -- Pop off oldest, TODO Add config option to keep N old logs
     if #self.log >= 50 then
@@ -1018,6 +1020,14 @@ function GalaxyMeter:OnAttackMissed(unitCaster, unitTarget, eMissType, strArgSpe
 end
 
 
+function GalaxyMeter:OnCombatLogDamage(tEventArgs)
+end
+
+
+function GalaxyMeter:OnCombatLogHeal(tEventArgs)
+end
+
+
 function GalaxyMeter:ShouldThrowAwayDamageEvent(unitCaster, unitTarget)
     if unitTarget then
 
@@ -1172,7 +1182,6 @@ end
 
 -- Find or create player data table
 -- @return Player data table
--- TODO Why do I pass in tEvent here instead of strPlayerName?
 function GalaxyMeter:GetMob(tLog, tEvent)
 
     local strMobName = tEvent.PlayerName
@@ -1937,7 +1946,6 @@ function GalaxyMeter:OnEncounterDropDown( wndHandler, wndControl, eMouseButton )
 		self.wndEncList:Show(true)
 		
 		-- Newest Entry at the Top
-		--for i = #self.log, 1, -1 do
 		for i = 1, #self.log do
 			local wnd = Apollo.LoadForm("GalaxyMeter.xml", "EncounterItem", self.Children.EncItemList, self)
 			table.insert(self.tEncItems, wnd)
@@ -2141,27 +2149,6 @@ function GalaxyMeter:OnListItemButtonDown( wndHandler, wndControl, eMouseButton,
 end
 
 
--- when a list item is selected
---[[
-function GalaxyMeter:OnListItemSelected(wndHandler, wndControl)
-    -- make sure the wndControl is valid
-    if wndHandler ~= wndControl then
-        return
-    end
-    
-    -- change the old item's text color back to normal color
-    local wndItemText
-    if self.wndSelectedListItem ~= nil then
-        wndItemText = self.wndSelectedListItem:FindChild("LeftText")
-        wndItemText:SetTextColor(kcrNormalText)
-    end
-    
-	-- wndControl is the item selected - change its color to selected
-	self.wndSelectedListItem = wndControl
-	wndItemText = self.wndSelectedListItem:FindChild("LeftText")
-    wndItemText:SetTextColor(kcrSelectedText)
-end
---]]
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter Config
