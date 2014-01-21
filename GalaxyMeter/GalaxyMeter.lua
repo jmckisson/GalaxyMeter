@@ -1550,8 +1550,8 @@ function GalaxyMeter:GetOverallList()
 
 	local strTotalText = string.format("%s - %d (%.2f) - %s",
 		string.format(mode.pattern, tLogSegment.name),
-		total,
-		total / tLogSegment.combat_length,
+		tTotal.t,
+		tTotal.t / tLogSegment.combat_length,
 		self:SecondsToString(tLogSegment.combat_length))
 
     return tList, tTotal, mode.name, strTotalText
@@ -1619,11 +1619,11 @@ function GalaxyMeter:GetPlayerList()
 
 	local strDisplayText = string.format("%s's %s", tPlayerLog.playerName, mode.type)
 
-	local strTotalText = string.format("%s on %s - %d (%.2f) - %s",
+	local strTotalText = string.format("%s - %d (%.2f) - %s",
 		--"%s's blah on %s"
-		string.format(mode.pattern, strPlayerName, mode.name, tLogSegment.name),
-		total,
-		total / tLogSegment.combat_length,
+		string.format(mode.pattern, tPlayerLog.playerName, mode.name, tLogSegment.name),
+		tTotal.t,
+		tTotal.t / tLogSegment.combat_length,
 		self:SecondsToString(tLogSegment.combat_length))
 
     return tList, tTotal, strDisplayText, strTotalText
