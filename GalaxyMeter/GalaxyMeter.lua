@@ -1121,6 +1121,46 @@ end
 
 
 function GalaxyMeter:OnCombatLogHeal(tEventArgs)
+	self:Rover("CombatLogHeal", tEventArgs)
+
+	local tInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	local tEvent = {}
+	tEvent.Caster = tInfo.strCaster
+	tEvent.CasterType = tInfo.strCasterType
+	tEvent.Target = tInfo.strTarget
+	tEvent.TargetType = tInfo.strTargetType
+	tEvent.SpellName = tInfo.strSpellName
+	tEvent.CasterClassId = tInfo.nClassId
+
+	tEvent.Deflect = false
+	--tEvent.DamageRaw = tEventArgs.nRawDamage
+	tEvent.Damage = tEventArgs.nHealAmount
+	--tEvent.Shield = tEventArgs.nShield
+	--tEvent.Absorb = tEventArgs.nAbsorption
+	--tEvent.Periodic = tEventArgs.bPeriodic
+	tEvent.Overheal = tEventArgs.nOverheal
+	tEvent.Result = tEventArgs.eCombatResult
+
+	tEvent.EffectType = tEventArgs.eEffectType
+
+	-- Temporary hack until we switch to checking spell effect type instead of tEvent.DamageType
+	if tEventArgs.eEffectType == Spell.CodeEnumSpellEffectType.Heal then
+		tEvent.DamageType = GameLib.CodeEnumDamageType.Heal
+	elseif tEventArgs.eEffectType == Spell.CodeEnumSpellEffectType.HealShields then
+		tEvent.DamageType = GameLib.CodeEnumDamageType.HealShields
+	end
+
+	tEvent.PlayerName = self.PlayerName
+
+	tEvent.TypeId = self:GetHealEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+
+	if tEvent.TypeId > 0 and tEvent.Damage then
+		self:UpdatePlayerSpell(tEvent)
+	else
+		gLog:warn("OnHeal: Something went wrong!  Invalid type Id!")
+		return
+	end
 end
 
 
@@ -1135,6 +1175,11 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 		nClassId = nil,
 	}
 
+	if bSpell then
+		tInfo.strSpellName = self:HelperGetNameElseUnknown(tEventArgs.splCallingSpell)
+	end
+
+	-- TODO It's probably better to detect pets by using unitCaster/TargetOwner
 	if tEventArgs.unitCaster then
 		tInfo.strCasterType = tEventArgs.unitCaster:GetType()
 
@@ -1149,7 +1194,6 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 			tInfo.nClassId = GameLib:GetPlayerUnit():GetClassId()
 
 		else
-			--strCaster = unitCaster:GetName()
 
 			tInfo.strCaster = self:HelperGetNameElseUnknown(tEventArgs.unitCaster)
 			if tEventArgs.unitCasterOwner and tEventArgs.unitCasterOwner:GetName() then
@@ -1192,10 +1236,6 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 		--if bColor then
 		--	tInfo.strColor = self:HelperPickColor(tEventArgs)
 		--end
-	end
-
-	if bSpell then
-		tInfo.strSpellName = self:HelperGetNameElseUnknown(tEventArgs.splCallingSpell)
 	end
 
 	return tInfo
@@ -1642,8 +1682,8 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
         spell = self:GetSpell(player.damageIn, spellName)
 
 	else
-		self:Rover("Error", tEvent)
-        gLog:fatal(string.format("Unknown type in UpdatePlayerSpell!"))
+		self:Rover("UpdatePlayerSpell Error", tEvent)
+        gLog:fatal("Unknown type in UpdatePlayerSpell!")
         gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
             spellName, tEvent.Caster, tEvent.Target, nAmount or 0))
 
@@ -1777,7 +1817,6 @@ function GalaxyMeter:GetPlayerList()
         table.insert(tList, {
             n = k,
             t = v.total,
-            --c = kHostilityToColor[3],
 			c = kDamageTypeToColor[v.dmgType],
 			tStr = nil,
 			click = function(m, btn)
@@ -1970,6 +2009,7 @@ function GalaxyMeter:DisplayList(Listing)
 		wnd.OnClick = v.click
 
 		if v.t then
+			-- TODO move formatting into the list generator
 			-- v.t is a total, format a string showing the total and total over time as dps
 			wnd.right_text:SetText(string.format("%s (%.2f)", v.t, v.t / self:GetLogDisplayTimer()))
 
