@@ -169,20 +169,22 @@ function GalaxyMeter:OnLoad()
 		--Apollo.RegisterEventHandler("AttackMissed", 					"OnAttackMissed", self)
 		--Apollo.RegisterEventHandler("SpellCastFailed", 				"OnSpellCastFailed", self)
 		--Apollo.RegisterEventHandler("SpellEffectCast", 				"OnSpellEffectCast", self)
-		Apollo.RegisterEventHandler("DamageOrHealingDone", 				"OnDamageOrHealingDone", self)
+		--Apollo.RegisterEventHandler("DamageOrHealingDone", 				"OnDamageOrHealingDone", self)
 		--Apollo.RegisterEventHandler("TransferenceTaken", 				"OnTransferenceTaken", self)
 		--Apollo.RegisterEventHandler("TransferenceDone", 				"OnTransferenceDone", self)
 		--Apollo.RegisterEventHandler("CombatLogString", 				"OnCombatLogString", self)
 		--Apollo.RegisterEventHandler("GenericEvent_CombatLogString", 	"OnCombatLogString", self)
+		Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
 		Apollo.RegisterEventHandler("CombatLogCCStateBreak",			"OnCombatLogCCStateBreak", self)
-		Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
-		Apollo.RegisterEventHandler("CombatLogInterrupted",				"OnCombatLogInterrupted", self)
+		Apollo.RegisterEventHandler("CombatLogDamage",					"OnCombatLogDamage", self)
 		Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
 		Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
-		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
 		Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
-		Apollo.RegisterEventHandler("CombatLogDamage",					"OnCombatLogDamage", self)
 		Apollo.RegisterEventHandler("CombatLogHeal",					"OnCombatLogHeal", self)
+		Apollo.RegisterEventHandler("CombatLogInterrupted",				"OnCombatLogInterrupted", self)
+		Apollo.RegisterEventHandler("CombatLogDeflect", 				"OnCombatLogDeflect", self)
+		Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
+		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
 
 		-- Chat: Shared Logging
 		Apollo.RegisterEventHandler("Group_Join",						"OnGroupJoin", self)
@@ -627,7 +629,7 @@ end
 function GalaxyMeter:OnCombatMessage(channel, tMsg)
 	
 	-- Ignore messages sent by yourself
-	if channel ~= self.CommChannel or tMsg.event.Caster == self.PlayerName then return nil end
+	if channel ~= self.CommChannel or tMsg.playerName == self.PlayerName then return nil end
 	
 	if tMsg.type == eMsgType.CombatEvent then
 	
@@ -662,7 +664,7 @@ function GalaxyMeter:OnCombatMessage(channel, tMsg)
 
 		
 	elseif tMsg.type == eMsgType.CombatStopEvent then
-		self.tGroupMembers[tMsg.event.Caster].combat = false
+		self.tGroupMembers[tMsg.playerName].combat = false
 	end
 end
 
@@ -831,6 +833,7 @@ function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageTy
         DamageType = eDamageType,
         SpellName = spellName,
         TypeId = 0,
+		Damage = 0,
     }
 
     if eMissType > 0 then
@@ -850,7 +853,6 @@ function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageTy
         event.Critical = bCritical
         event.Miss = false
     end
-
 
     --
     -- Figure out the proper caster name and class id for the casting unit
@@ -908,8 +910,6 @@ function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageTy
     event.Caster = strCaster
 	event.StrType = dmgType
 	event.CasterClassId = nClassId
-
-    self:Rover("NewCombatEvent, tEvent", event)
 
     return event
 end
@@ -1009,23 +1009,204 @@ function GalaxyMeter:OnCombatLogDeath(tEventArgs)
 end
 
 
-function GalaxyMeter:OnAttackMissed(unitCaster, unitTarget, eMissType, strArgSpellName)
-	if not self.bInCombat then return nil end
-	
-	local strSpellName = "Unknown" if strArgSpellName and string.len(strArgSpellName) > 0 then strSpellName = strArgSpellName end
+function GalaxyMeter:OnCombatLogAbsorption(tEventArgs)
+end
 
-	local CombatEvent = self:NewCombatEvent(unitCaster, unitTarget, eMissType, 0, strSpellName)
-	
-	self:UpdateDamageSpell(CombatEvent)
+
+function GalaxyMeter:OnCombatLogResurrect(tEventArgs)
+end
+
+
+function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
+
+	self:Rover("CombatLogDeflect", tEventArgs)
+
+	local tInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	local tEvent = {}
+	tEvent.Caster = tInfo.strCaster
+	tEvent.CasterType = tInfo.strCasterType
+	tEvent.Target = tInfo.strTarget
+	tEvent.TargetType = tInfo.strTargetType
+	tEvent.SpellName = tInfo.strSpellName
+	tEvent.CasterClassId = tInfo.nClassId
+
+	tEvent.Damage = 0
+	tEvent.Deflect = true
+	tEvent.Result = tEventArgs.eCombatResult
+	tEvent.PlayerName = self.PlayerName
+
+	tEvent.TypeId = self:GetDamageEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+
+	-- Should we trigger a new log segment?
+	if self.bNeedNewLog then
+		self:StartLogSegment()
+		self.bNeedNewLog = false
+		self.tCurrentLog.name = tEvent.Target
+		gLog:info(string.format("OnDeflect: Set activeLog.name to %s", tEvent.Target))
+	end
+
+	self:UpdatePlayerSpell(tEvent)
 end
 
 
 function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 	self:Rover("CombatLogDamage", tEventArgs)
+
+	local tInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	local tEvent = {}
+	tEvent.Caster = tInfo.strCaster
+	tEvent.CasterType = tInfo.strCasterType
+	tEvent.Target = tInfo.strTarget
+	tEvent.TargetType = tInfo.strTargetType
+	tEvent.SpellName = tInfo.strSpellName
+	tEvent.CasterClassId = tInfo.nClassId
+
+	tEvent.Deflect = false
+	tEvent.DamageRaw = tEventArgs.nRawDamage
+	tEvent.Shield = tEventArgs.nShield
+	tEvent.Absorb = tEventArgs.nAbsorption
+	tEvent.Periodic = tEventArgs.bPeriodic
+	tEvent.Vuln = tEventArgs.bVulnerable
+	tEvent.Overkill = tEventArgs.nOverkill
+	tEvent.Result = tEventArgs.eCombatResult
+	tEvent.DamageType = tEventArgs.eDamageType
+	tEvent.EffectType = tEventArgs.eEffectType
+
+	tEvent.PlayerName = self.PlayerName
+
+
+	-- Check if incoming dmg on pet or self for now, which we aren't tracking yet
+	if self:ShouldThrowAwayDamageEvent(tEventArgs.unitCaster, tEventArgs.unitTarget) then
+		return
+	end
+
+	-- Workaround for lower level players dealing a severely reduced damage to target dummies
+	if tEvent.Target == "Target Dummy" and GameLib.GetPlayerUnit():GetLevel() < 50 then
+		tEvent.Damage = tEventArgs.nRawDamage
+	else
+		tEvent.Damage = tEventArgs.nDamageAmount
+	end
+
+	tEvent.TypeId = self:GetDamageEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+
+	-- Should we trigger a new log segment?
+	if self.bNeedNewLog then
+		self:StartLogSegment()
+		self.bNeedNewLog = false
+		self.tCurrentLog.name = tEvent.Target
+		gLog:info(string.format("OnDamage: Set activeLog.name to %s", tEvent.Target))
+	end
+
+	if tEvent.TypeId > 0 and tEvent.Damage then
+		self:UpdatePlayerSpell(tEvent)
+	else
+		gLog:warn("OnDamage: Something went wrong!  Invalid type Id!")
+		return
+	end
+
+	-- Count pet actions as actions of the player, done after UpdateSpell because AddPlayer sets CasterClassId to CombatEvent.Caster
+	if not tEventArgs.unitCaster then
+		--gLog:info(string.format("Pet Damage, set CasterID to %s", CombatEvent.CasterId))
+		event.CasterClassId = self.unitPlayer:GetClassId()
+	else
+
+		-- Check unitCaster here to prevent nil caster events from being sent
+		if tEvent.Caster == self.PlayerName then
+			self:SendCombatMessage(tEvent)
+		end
+	end
 end
 
 
 function GalaxyMeter:OnCombatLogHeal(tEventArgs)
+end
+
+
+function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
+	local tInfo = {
+		strCaster = nil,
+		strTarget = nil,
+		strSpellName = nil,
+		strColor = nil,
+		strCasterType = nil,
+		strTargetType = nil,
+		nClassId = nil,
+	}
+
+	if tEventArgs.unitCaster then
+		tInfo.strCasterType = tEventArgs.unitCaster:GetType()
+
+		-- Count pets as damage done by the player
+		if tInfo.strCasterType == "Pet" then
+			--gLog:info(string.format("Pet Damage, set CasterID to %s", nCasterId))
+
+			-- Prepend pet name to the spell name
+			tInfo.strSpellName = string.format("%s: %s", tEventArgs.unitCaster:GetName(), tInfo.strSpellName)
+
+			tInfo.strCaster = self.PlayerName
+			tInfo.nClassId = GameLib:GetPlayerUnit():GetClassId()
+
+		else
+			--strCaster = unitCaster:GetName()
+
+			tInfo.strCaster = self:HelperGetNameElseUnknown(tEventArgs.unitCaster)
+			if tEventArgs.unitCasterOwner and tEventArgs.unitCasterOwner:GetName() then
+				tInfo.strCaster = string.format("%s (%s)", tInfo.strCaster, tEventArgs.unitCasterOwner:GetName())
+			end
+
+			tInfo.nClassId = tEventArgs.unitCaster:GetClassId()
+		end
+
+	else
+		local nTargetId = self:GetUnitId(tEventArgs.unitTarget)
+		local strTarget = self:GetUnitName(tEventArgs.unitTarget)
+
+		-- Hack to fix Pets sometimes having no unitCaster
+		gLog:info(string.format("HelperCasterTargetSpell unitCaster nil(pet?): Caster[%d] %s, Target[%d] %s",
+			0, "Unknown", nTargetId, strTarget))
+
+		-- Set caster to our player name
+		tInfo.strCaster = self.PlayerName
+
+		-- Set class id to player class
+		-- This is only needed if the caster doesn't exist yet in the log, to properly set the class if a pet
+		-- initiates combat
+		tInfo.nClassId = GameLib:GetPlayerUnit():GetClassId()
+	end
+
+
+	if bTarget then
+		tInfo.strTarget = self:HelperGetNameElseUnknown(tEventArgs.unitTarget)
+		if tEventArgs.unitTargetOwner and tEventArgs.unitTargetOwner:GetName() then
+			tInfo.strTarget = string.format("%s (%s)", tInfo.strTarget, tEventArgs.unitTargetOwner:GetName())
+		end
+
+		if tEventArgs.unitTarget then
+			tInfo.strTargetType = tEventArgs.unitTarget:GetType()
+		else
+			tInfo.strTargetType = "Unknown"
+		end
+
+		--if bColor then
+		--	tInfo.strColor = self:HelperPickColor(tEventArgs)
+		--end
+	end
+
+	if bSpell then
+		tInfo.strSpellName = self:HelperGetNameElseUnknown(tEventArgs.splCallingSpell)
+	end
+
+	return tInfo
+end
+
+
+function GalaxyMeter:HelperGetNameElseUnknown(nArg)
+	if nArg and nArg:GetName() then
+		return nArg:GetName()
+	end
+	return Apollo.GetString("CombatLog_SpellUnknown")
 end
 
 
@@ -1114,6 +1295,7 @@ end
 
 -- Event handler for incoming and outgoing damage and healing
 -- Currently this only receives events which the player unit initiates or is the target of
+--[[
 function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical, strArgSpellName)
 
 	self:Rover("unitCaster", unitCaster)
@@ -1173,7 +1355,7 @@ function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, 
         end
     end
 end
-
+--]]
 
 -- Look up player by name
 function GalaxyMeter:FindMob(tLog, strMobName)
@@ -1290,8 +1472,9 @@ function GalaxyMeter:GetSpell(tSpellTypeLog, spellName)
             -- Counters
             castCount = 0,              -- total number of hits, includes crits
             critCount = 0,              -- total number of crits
-            missCount = 0,
-            dodgeCount = 0,
+            deflectCount = 0,
+            --missCount = 0,
+            --dodgeCount = 0,
             --blockCount = 0,
 
             -- Totals
@@ -1323,18 +1506,20 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
     -- Spell total casts, all hits crits and misses
     tSpell.castCount = tSpell.castCount + 1
 
-    if tEvent.Critical then
+    if tEvent.Result == GameLib.CodeEnumCombatResult.Critical then
         tSpell.critCount = tSpell.critCount + 1
         tSpell.totalCrit = tSpell.totalCrit + nAmount
 
-    --elseif tEvent.Block then
-    --    tSpell.blockCount = tSpell.blockCount + 1
+    elseif tEvent.Deflect then
+        tSpell.deflectCount = tSpell.deflectCount + 1
 
+	--[[
     elseif tEvent.Dodge then
         tSpell.dodgeCount = tSpell.dodgeCount + 1
 
     elseif tEvent.Miss then
         tSpell.missCount = tSpell.missCount + 1
+    --]]
     end
 
     -- Shield Absorption - Total damage includes dmg done to shields while spell breakdowns dont
@@ -1375,7 +1560,7 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     local activeLog = nil
 
     if bDebug then
-        if not nAmount then
+        if not nAmount and not tEvent.Deflect then
             gLog:fatal("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
             return
         end
@@ -1405,7 +1590,7 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
     -- Player tally and spell type
     -- TODO Generalize this comparison chain
-    if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
+	if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
 
         -- Special handling for self healing, we want to count this as both healing done and received
         -- Maybe add option to enable tracking for this
@@ -1455,10 +1640,11 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
         spell = self:GetSpell(player.damageIn, spellName)
 
-    else
-        gLog:fatal(string.format("Unknown type %d in UpdatePlayerSpell!", tEvent.TypeId))
+	else
+		self:Rover("Error", tEvent)
+        gLog:fatal(string.format("Unknown type in UpdatePlayerSpell!"))
         gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
-            spellName, CasterId, tEvent.Target, nAmount))
+            spellName, tEvent.Caster, tEvent.Target, nAmount or 0))
     end
 
     if spell then
@@ -1667,9 +1853,10 @@ function GalaxyMeter:GetSpellList()
 		{n = "Crit Count/Avg/Rate", tStr = string.format("%d - %.2f (%.2f%%)", tSpell.critCount, tSpell.avgCrit, tSpell.critCount / tSpell.castCount * 100), click = cFunc},
 		{n = "Total Shields", tStr = tostring(tSpell.totalShield), click = cFunc},
 		{n = "Total Absorb", tStr = tostring(tSpell.totalAbsorption), click = cFunc},
+		{n = "Deflects", tStr = string.format("%d (%.2f%%)", tSpell.deflectCount, tSpell.deflectCount / tSpell.castCount * 100), click = cFunc},
 		--{n = "Blocks", tStr = tSpell.blockCount, click = cFunc},
-		{n = "Dodges", tStr = tSpell.dodgeCount, click = cFunc},
-		{n = "Misses", tStr = tSpell.missCount, click = cFunc},
+		--{n = "Dodges", tStr = tSpell.dodgeCount, click = cFunc},
+		--{n = "Misses", tStr = tSpell.missCount, click = cFunc},
 	}
 
 	if tSpell.max and tSpell.min then
