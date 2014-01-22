@@ -834,12 +834,12 @@ function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageTy
     }
 
     if eMissType > 0 then
-        local Block = ( eMissType == GameLib.CodeEnumMissType.Block )
+        --local Block = ( eMissType == GameLib.CodeEnumMissType.Block )
         local Dodge = ( eMissType == GameLib.CodeEnumMissType.Dodge )
 
-        event.Block = Block
+        --event.Block = Block
         event.Dodge = Dodge
-        event.Miss = ( not Block and not Dodge )
+        event.Miss = ( --[[not Block and--]] not Dodge )
 
     elseif eDamageType > 0 then
         local nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical = ...
@@ -1021,6 +1021,7 @@ end
 
 
 function GalaxyMeter:OnCombatLogDamage(tEventArgs)
+	self:Rover("CombatLogDamage", tEventArgs)
 end
 
 
@@ -1291,7 +1292,7 @@ function GalaxyMeter:GetSpell(tSpellTypeLog, spellName)
             critCount = 0,              -- total number of crits
             missCount = 0,
             dodgeCount = 0,
-            blockCount = 0,
+            --blockCount = 0,
 
             -- Totals
             total = 0,                  -- total damage, totalNormal + totalCrit
@@ -1326,8 +1327,8 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
         tSpell.critCount = tSpell.critCount + 1
         tSpell.totalCrit = tSpell.totalCrit + nAmount
 
-    elseif tEvent.Block then
-        tSpell.blockCount = tSpell.blockCount + 1
+    --elseif tEvent.Block then
+    --    tSpell.blockCount = tSpell.blockCount + 1
 
     elseif tEvent.Dodge then
         tSpell.dodgeCount = tSpell.dodgeCount + 1
@@ -1666,9 +1667,9 @@ function GalaxyMeter:GetSpellList()
 		{n = "Crit Count/Avg/Rate", tStr = string.format("%d - %.2f (%.2f%%)", tSpell.critCount, tSpell.avgCrit, tSpell.critCount / tSpell.castCount * 100), click = cFunc},
 		{n = "Total Shields", tStr = tostring(tSpell.totalShield), click = cFunc},
 		{n = "Total Absorb", tStr = tostring(tSpell.totalAbsorption), click = cFunc},
-		{n = "Blocks", tStr = tostring(tSpell.Block), click = cFunc},
-		{n = "Dodges", tStr = tostring(tSpell.Dodge), click = cFunc},
-		{n = "Misses", tStr = tostring(tSpell.Misse), click = cFunc},
+		--{n = "Blocks", tStr = tSpell.blockCount, click = cFunc},
+		{n = "Dodges", tStr = tSpell.dodgeCount, click = cFunc},
+		{n = "Misses", tStr = tSpell.missCount, click = cFunc},
 	}
 
 	if tSpell.max and tSpell.min then
