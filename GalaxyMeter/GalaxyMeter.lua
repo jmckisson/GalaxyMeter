@@ -1496,31 +1496,26 @@ end
 --
 function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
 
+	-- Spell total casts, all hits crits and misses
+	tSpell.castCount = tSpell.castCount + 1
+
+	if tEvent.Deflect then
+		tSpell.deflectCount = tSpell.deflectCount + 1
+		-- We're done here, move along
+		return
+	end
+
 	if not tSpell.dmgType then tSpell.dmgType = tEvent.DamageType end
 
-    local nAmount = tEvent.Damage
+	local nAmount = tEvent.Damage
 
-    -- Spell Total
-    tSpell.total = tSpell.total + nAmount
+	-- Spell Total
+	tSpell.total = tSpell.total + nAmount
 
-    -- Spell total casts, all hits crits and misses
-    tSpell.castCount = tSpell.castCount + 1
-
-    if tEvent.Result == GameLib.CodeEnumCombatResult.Critical then
-        tSpell.critCount = tSpell.critCount + 1
-        tSpell.totalCrit = tSpell.totalCrit + nAmount
-
-    elseif tEvent.Deflect then
-        tSpell.deflectCount = tSpell.deflectCount + 1
-
-	--[[
-    elseif tEvent.Dodge then
-        tSpell.dodgeCount = tSpell.dodgeCount + 1
-
-    elseif tEvent.Miss then
-        tSpell.missCount = tSpell.missCount + 1
-    --]]
-    end
+	if tEvent.Result == GameLib.CodeEnumCombatResult.Critical then
+		tSpell.critCount = tSpell.critCount + 1
+		tSpell.totalCrit = tSpell.totalCrit + nAmount
+	end
 
     -- Shield Absorption - Total damage includes dmg done to shields while spell breakdowns dont
     if tEvent.ShieldAbsorbed and tEvent.ShieldAbsorbed > 0 then
@@ -1562,6 +1557,7 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     if bDebug then
         if not nAmount and not tEvent.Deflect then
             gLog:fatal("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
+			self:Rover("nil nAmount Spell", tEvent)
             return
         end
     end
@@ -1590,7 +1586,12 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
     -- Player tally and spell type
     -- TODO Generalize this comparison chain
-	if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
+	if tEvent.Deflect then
+		-- Spell was deflected, still need to determine what kind of spell it was
+		-- splCallingSpell:IsBeneficial() might do the trick, but for now assume damageOut until we track buffs/debuffs
+		spell = self:GetSpell(player.damageOut, spellName)
+
+	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
 
         -- Special handling for self healing, we want to count this as both healing done and received
         -- Maybe add option to enable tracking for this
@@ -1645,6 +1646,8 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
         gLog:fatal(string.format("Unknown type in UpdatePlayerSpell!"))
         gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
             spellName, tEvent.Caster, tEvent.Target, nAmount or 0))
+
+		-- spell should be null here, safe to continue on...
     end
 
     if spell then
@@ -1846,22 +1849,25 @@ function GalaxyMeter:GetSpellList()
 		end
 	end
 
-	local tList = {
-		{n = string.format("Total Damage (%s)", kDamageTypeToString[tSpell.dmgType]), tStr = tSpell.total, click = cFunc},
-		{n = "Cast Count/Avg", tStr = string.format("%d - %.2f", tSpell.castCount, tSpell.avg), click = cFunc},
-		{n = "Crit Damage", tStr = string.format("%d (%.2f%%)", tSpell.totalCrit, tSpell.totalCrit / tSpell.total * 100), click = cFunc},
-		{n = "Crit Count/Avg/Rate", tStr = string.format("%d - %.2f (%.2f%%)", tSpell.critCount, tSpell.avgCrit, tSpell.critCount / tSpell.castCount * 100), click = cFunc},
-		{n = "Total Shields", tStr = tostring(tSpell.totalShield), click = cFunc},
-		{n = "Total Absorb", tStr = tostring(tSpell.totalAbsorption), click = cFunc},
-		{n = "Deflects", tStr = string.format("%d (%.2f%%)", tSpell.deflectCount, tSpell.deflectCount / tSpell.castCount * 100), click = cFunc},
-		--{n = "Blocks", tStr = tSpell.blockCount, click = cFunc},
-		--{n = "Dodges", tStr = tSpell.dodgeCount, click = cFunc},
-		--{n = "Misses", tStr = tSpell.missCount, click = cFunc},
-	}
+	local tList = {}
+
+	-- Prevent buffs and debuffs without a dmg type from showing in the list
+	if tSpell.dmgType and tSpell.dmgType ~= "" then
+		table.insert(tList, {n = string.format("Total Damage (%s)", kDamageTypeToString[tSpell.dmgType]), tStr = tSpell.total, click = cFunc})
+	end
+
+	table.insert(tList, {n = "Cast Count/Avg", tStr = string.format("%d - %.2f", tSpell.castCount, tSpell.avg), click = cFunc})
+	table.insert(tList, {n = "Crit Damage", tStr = string.format("%d (%.2f%%)", tSpell.totalCrit, tSpell.totalCrit / tSpell.total * 100), click = cFunc})
+	table.insert(tList, {n = "Crit Count/Avg/Rate", tStr = string.format("%d - %.2f (%.2f%%)", tSpell.critCount, tSpell.avgCrit, tSpell.critCount / tSpell.castCount * 100), click = cFunc})
 
 	if tSpell.max and tSpell.min then
-		table.insert(tList, 5, {n = "Min/Max", tStr = string.format("%d / %d", tSpell.min, tSpell.max), click = cFunc})
+		table.insert(tList, {n = "Min/Max", tStr = string.format("%d / %d", tSpell.min, tSpell.max), click = cFunc})
 	end
+
+	table.insert(tList, {n = "Total Shields", tStr = tostring(tSpell.totalShield), click = cFunc})
+	table.insert(tList, {n = "Total Absorbed", tStr = tostring(tSpell.totalAbsorption), click = cFunc})
+	table.insert(tList, {n = "Deflects", tStr = string.format("%d (%.2f%%)", tSpell.deflectCount, tSpell.deflectCount / tSpell.castCount * 100), click = cFunc})
+
 
 	local strDisplayText = string.format("%s's %s", self.vars.tCurrentPlayer.playerName, tSpell.name)
 
