@@ -598,9 +598,9 @@ function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 
 		-- If we were in combat, and not anymore...
         if self.bInCombat and not bInCombat then
-            	gLog:info("Sending combat stop message")
-            	self:SendCombatMessage(eMsgType.CombatStopEvent, {})
-				-- Combat timer will still run until the last member of the group exits combat
+			gLog:info("Sending combat stop message")
+			self:SendCombatMessage(eMsgType.CombatStopEvent, {})
+			-- Combat timer will still run until the last member of the group exits combat
         end
 	
 		self.bInCombat = bInCombat
@@ -2255,7 +2255,7 @@ function GalaxyMeter:DisplayUpdate()
 
 	-- Text below the meter
 	self.Children.DisplayText:SetText(strDisplayText)
-	self.Children.TimeText:SetText("Timer: " .. self:SecondsToString(self.tCurrentLog.combat_length))
+	self.Children.TimeText:SetText("Timer: " .. self:SecondsToString(self.vars.tLogDisplay.combat_length))
 
     self:DisplayList(tList)
 end
@@ -2552,7 +2552,7 @@ function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButt
 	self.vars.tMode = self.tModes["Main Menu"]
 
 	self.Children.EncounterButton:SetText(self.vars.tLogDisplay.name)
-	self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.vars.tLogDisplay.combat_length))
+	--self.Children.TimeText:SetText("Timer: "..self:SecondsToString(self.vars.tLogDisplay.combat_length))
 	
 	self:HideEncounterDropDown()
 	
