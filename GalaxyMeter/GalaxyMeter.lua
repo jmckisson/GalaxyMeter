@@ -26,6 +26,7 @@ local GalaxyMeter = {}
 local GalMet_Version = "0.10"
 local GalMet_LogVersion = 5
 local bDebug = true
+local bGroupSync = false
 
 local kcrSelectedText = CColor.new(1,1,1,1)
 local kcrNormalText = CColor.new(1,1,0.7,0.7)
@@ -189,9 +190,11 @@ function GalaxyMeter:OnLoad()
 		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
 
 		-- Chat: Shared Logging
-		Apollo.RegisterEventHandler("Group_Join",						"OnGroupJoin", self)
-		Apollo.RegisterEventHandler("Group_Left",						"OnGroupLeft", self)
-		Apollo.RegisterEventHandler("Group_Updated",					"OnGroupUpdated", self)
+		if bGroupSync then
+			Apollo.RegisterEventHandler("Group_Join",						"OnGroupJoin", self)
+			Apollo.RegisterEventHandler("Group_Left",						"OnGroupLeft", self)
+			Apollo.RegisterEventHandler("Group_Updated",					"OnGroupUpdated", self)
+		end
 
 		-- Combat Timer
 	    Apollo.CreateTimer("CombatTimer", 0.05, true)
@@ -199,9 +202,9 @@ function GalaxyMeter:OnLoad()
 		Apollo.StopTimer("CombatTimer")
 		
 		-- Player Check Timer
-	    Apollo.CreateTimer("PlayerCheckTimer", 3, false)	-- Pulsing Timer
+	    Apollo.CreateTimer("PlayerCheckTimer", 1, true)	-- Pulsing Timer
 	    Apollo.RegisterTimerHandler("PlayerCheckTimer", 				"OnPlayerCheckTimer", self)
-
+		Apollo.StopTimer("PlayerCheckTimer")
 		
 	    -- Load Forms
 	    self.wndMain = Apollo.LoadForm("GalaxyMeter.xml", "GalaxyMeterForm", nil, self)
@@ -436,8 +439,8 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		self.PlayerId = tostring(self.unitPlayerId)
 		self.PlayerName = self.unitPlayer:GetName()
 
-		Apollo.StartTimer("PlayerCheckTimer")
 	end
+
 
 	-- Check if the rest of the group is out of combat
 	if self.tCurrentLog.start > 0 then
@@ -451,11 +454,13 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		--gLog:warn("no log checking timer")
 	end
 
-	if self.CommChannel and #self.tMsgQueue > 0 then
-		local num = #self.tMsgQueue
-		local result = self.CommChannel:SendMessage(self.tMsgQueue)
-		gLog:info("SendMessage["..num.."] result: " .. tostring(result))
-		self.tMsgQueue = {}
+	if bGroupSync then
+		if self.CommChannel and #self.tMsgQueue > 0 then
+			local num = #self.tMsgQueue
+			local result = self.CommChannel:SendMessage(self.tMsgQueue)
+			gLog:info("SendMessage["..num.."] result: " .. tostring(result))
+			self.tMsgQueue = {}
+		end
 	end
 
 end
@@ -593,9 +598,9 @@ function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 
 		-- If we were in combat, and not anymore...
         if self.bInCombat and not bInCombat then
-            gLog:info("Sending combat stop message")
-            self:SendCombatMessage(eMsgType.CombatStopEvent, {})
-			-- Combat timer will still run until the last member of the group exits combat
+            	gLog:info("Sending combat stop message")
+            	self:SendCombatMessage(eMsgType.CombatStopEvent, {})
+				-- Combat timer will still run until the last member of the group exits combat
         end
 	
 		self.bInCombat = bInCombat
@@ -616,10 +621,12 @@ function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 		end
 	end
 
+	--[[
 	self:Rover("UnitEnteredCombat " .. unit:GetName() .. " " .. tostring(bInCombat), {
 		self = GameLib.GetPlayerUnit(),
 		unit = unit,
 	})
+	--]]
 end
 
 -----------------------------------------------------------------------------------------------
@@ -665,7 +672,7 @@ end
 
 function GalaxyMeter:OnCombatMessage(channel, tMsgs)
 
-	if channel ~= self.CommChannel then return nil end
+	if not bGroupSync or channel ~= self.CommChannel then return nil end
 
 	gLog:info("Processing " .. #tMsgs .. " messages...")
 
@@ -778,7 +785,7 @@ end
 
 
 function GalaxyMeter:SendCombatMessage(eType, tEvent)
-	if self.CommChannel then
+	if bGroupSync and self.CommChannel then
 		
 		local msg = {
 			version = GalMet_LogVersion,
@@ -2028,6 +2035,7 @@ function GalaxyMeter:GetPlayerList()
 		tTotal.t / tLogSegment.combat_length,
 		self:SecondsToString(tLogSegment.combat_length))
 
+	--[[
 	self:Rover("PlayerList: pattern", {
 		text = strTotalText,
 		modePattern = mode.pattern,
@@ -2035,6 +2043,7 @@ function GalaxyMeter:GetPlayerList()
 		formattedPattern = strModePatternTemp,
 		strDisplayText = strDisplayText,
 	})
+	--]]
 
     return tList, tTotal, strDisplayText, strTotalText
 end
