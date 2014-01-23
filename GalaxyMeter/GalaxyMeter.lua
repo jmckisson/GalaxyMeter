@@ -25,7 +25,7 @@ local GalaxyMeter = {}
 -----------------------------------------------------------------------------------------------
 local GalMet_Version = "0.10"
 local GalMet_LogVersion = 5
-local bDebug = true
+local bDebug = false
 local bGroupSync = false
 
 local kcrSelectedText = CColor.new(1,1,1,1)
@@ -155,7 +155,7 @@ function GalaxyMeter:OnLoad()
 
 	GeminiPackages:Require("GeminiLogging-1.0", function(GeminiLogging)
 		gLog = GeminiLogging:GetLogger({
-			level = GeminiLogging.INFO,
+			level = GeminiLogging.FATAL,
 			pattern = "[%d] %n [%c:%l] - %m",
 			appender = "GeminiConsole"
 		})
@@ -937,104 +937,6 @@ function GalaxyMeter:IsHealEvent(eType)
 end
 
 
-function GalaxyMeter:NewCombatEvent(unitCaster, unitTarget, eMissType, eDamageType, spellName, ...)
-
-    local dmgType = "Damage"
-    local nClassId
-    local strCaster
-
-    local event = {
-        --Caster = "Unknown",
-        CasterId = self:GetUnitId(unitCaster),
-        CasterType = "Unknown",
-        Target = "Unknown",
-        TargetId = self:GetUnitId(unitTarget),
-        TargetType = "Unknown",
-        DamageType = eDamageType,
-        SpellName = spellName,
-        TypeId = 0,
-		Damage = 0,
-    }
-
-    if eMissType > 0 then
-        --local Block = ( eMissType == GameLib.CodeEnumMissType.Block )
-        local Dodge = ( eMissType == GameLib.CodeEnumMissType.Dodge )
-
-        --event.Block = Block
-        event.Dodge = Dodge
-        event.Miss = ( --[[not Block and--]] not Dodge )
-
-    elseif eDamageType > 0 then
-        local nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical = ...
-
-        event.Damage = nDamage
-        event.ShieldAbsorbed = nShieldAbsorbed
-        event.AbsorptionAmount = nAbsorptionAmount
-        event.Critical = bCritical
-        event.Miss = false
-    end
-
-    --
-    -- Figure out the proper caster name and class id for the casting unit
-    if unitCaster then
-        event.CasterType = unitCaster:GetType()
-
-        -- Count pets as damage done by the player
-        if event.CasterType == "Pet" then
-            --gLog:info(string.format("Pet Damage, set CasterID to %s", nCasterId))
-
-            -- Prepend pet name to the spell name
-            event.SpellName = string.format("%s: %s", unitCaster:GetName(), event.SpellName)
-
-            strCaster = self.PlayerName
-            nClassId = GameLib:GetPlayerUnit():GetClassId()
-
-        else
-            strCaster = unitCaster:GetName()
-            nClassId = unitCaster:GetClassId()
-        end
-
-    else
-        local nTargetId = self:GetUnitId(unitTarget)
-        local strTarget = self:GetUnitName(unitTarget)
-
-        -- Hack to fix Pets sometimes having no unitCaster
-        gLog:info(string.format("NewCombatEvent unitCaster nil(pet?): Caster[%d] %s, Target[%d] %s",
-            event.CasterId, "Unknown", nTargetId, strTarget))
-
-        -- Set caster to our player name
-        strCaster = self.PlayerName
-
-        -- Set class id to player class
-        -- This is only needed if the caster doesn't exist yet in the log, to properly set the class if a pet
-        -- initiates combat
-        nClassId = GameLib:GetPlayerUnit():GetClassId()
-    end
-
-
-	if unitTarget then
-        event.TargetType = unitTarget:GetType()
-
-        if unitTarget:GetName() then
-		    event.Target = unitTarget:GetName()
-		    gLog:info("unitTarget, set target to " .. event.Target)
-        end
-
-    else
-        -- No spell target, how about what the player is targetting?
-		event.Target = self:GetTarget()
-		gLog:info("no unitTarget, set target to " .. event.Target)
-    end
-
-    event.PlayerName = self.PlayerName
-    event.Caster = strCaster
-	event.StrType = dmgType
-	event.CasterClassId = nClassId
-
-    return event
-end
-
-
 function GalaxyMeter:OnCombatLogDispel(tEventArgs)
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
@@ -1489,70 +1391,6 @@ function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
 end
 
 
--- Event handler for incoming and outgoing damage and healing
--- Currently this only receives events which the player unit initiates or is the target of
---[[
-function GalaxyMeter:OnDamageOrHealingDone(unitCaster, unitTarget, eDamageType, nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical, strArgSpellName)
-
-	self:Rover("unitCaster", unitCaster)
-	self:Rover("unitTarget", unitTarget)
-	self:Rover("eDamageType", eDamageType)
-	self:Rover("strArgSpellName", strArgSpellName)
-
-
-	if not self.bInCombat then return nil end
-
-    -- TODO Move this into NewCombatEvent
-    local strSpellName = "Unknown" if strArgSpellName and string.len(strArgSpellName) > 0 then strSpellName = strArgSpellName end
-
-    local event = self:NewCombatEvent(unitCaster, unitTarget, 0, eDamageType, strSpellName, nDamage, nShieldAbsorbed, nAbsorptionAmount, bCritical)
-
-    -- Determine the spell TypeId, still need unitTarget and unitCaster for that
-    if self:IsHealEvent(event.DamageType) then
-
-        event.TypeId = self:GetHealEventType(unitCaster, unitTarget)
-
-    else
-
-        -- Check if incoming dmg on pet or self for now, which we aren't tracking yet
-        if self:ShouldThrowAwayDamageEvent(unitCaster, unitTarget) then
-            return
-        end
-
-        event.TypeId = self:GetDamageEventType(unitCaster, unitTarget)
-
-        -- Should we trigger a new log segment?
-        if self.bNeedNewLog then
-            self:StartLogSegment()
-            self.bNeedNewLog = false
-            self.tCurrentLog.name = event.Target
-            gLog:info(string.format("OnDamage: Set activeLog.name to %s", event.Target))
-        end
-
-    end
-
-    if event.TypeId > 0 then
-        self:UpdatePlayerSpell(event)
-    else
-        gLog:warn("OnDamage: Something went wrong!  Invalid type Id!")
-        return
-    end
-
-		
-	-- Count pet actions as actions of the player, done after UpdateSpell because AddPlayer sets CasterClassId to CombatEvent.Caster
-	if not unitCaster then
-		--gLog:info(string.format("Pet Damage, set CasterID to %s", CombatEvent.CasterId))
-		event.CasterClassId = self.unitPlayer:GetClassId()
-	else
-	
-        -- Check unitCaster here to prevent nil caster events from being sent
-        if event.Caster == self.PlayerName then
-            self:SendCombatMessage(event)
-        end
-    end
-end
---]]
-
 -- Look up player by name
 function GalaxyMeter:FindMob(tLog, strMobName)
     return tLog[strMobName]
@@ -1759,31 +1597,14 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     local nAmount = tEvent.Damage
     local activeLog = nil
 
-    if bDebug then
+    --if bDebug then
         if not nAmount and not tEvent.Deflect then
             gLog:fatal("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
 			self:Rover("nil nAmount Spell", tEvent)
             return
         end
-    end
+    --end
 
-	--[[
-    if (casterType == "Player" or casterType == "Pet") then
-        -- Caster is a player or pet
-        activeLog = self.tCurrentLog["players"]
-    elseif casterType == "NonPlayer" then
-        --activeLog = self.tCurrentLog["mobs"]
-    else
-        -- If we got here after already attempting to not pay attention to incoming damage, then I need to fix this
-        --Log = self.tCurrentLog["mobs"]
-        gLog:warn("Unknown caster type, going to fail... " .. casterType)
-    end
-
-    if not activeLog then
-        gLog:fatal("Nil log after checking casterType: " .. casterType)
-        return
-	end
-	--]]
 
 	activeLog = self.tCurrentLog.players
 
@@ -1795,15 +1616,6 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
     -- Player tally and spell type
     -- TODO Generalize this comparison chain
-	--[[
-	if tEvent.Deflect then
-		-- Spell was deflected, still need to determine what kind of spell it was
-		-- splCallingSpell:IsBeneficial() might do the trick, but for now assume damageOut until we track buffs/debuffs
-		if tEvent.TypeId ==
-		spell = self:GetSpell(player.damageOut, spellName)
-
-	else
-	--]]
 	if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
 
         -- Special handling for self healing, we want to count this as both healing done and received
