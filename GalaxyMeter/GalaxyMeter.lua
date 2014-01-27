@@ -271,7 +271,7 @@ function GalaxyMeter:OnLoad()
                 report = self.ReportGenericList,
                 type = "damageTaken",
                 prev = self.MenuMain,
-                next = self.MenuPlayer,
+                next = self.MenuPlayerSelection,
                 sort = function(a,b) return a.t > b.t end,
             },
             ["Player Healing Done"] = {
@@ -281,7 +281,7 @@ function GalaxyMeter:OnLoad()
                 report = self.ReportGenericList,
                 type = "healingDone",
                 prev = self.MenuMain,
-                next = self.MenuPlayer,
+                next = self.MenuPlayerSelection,
                 sort = function(a,b) return a.t > b.t end,
             },
             ["Player Healing Received"] = {
@@ -291,7 +291,7 @@ function GalaxyMeter:OnLoad()
                 report = self.ReportGenericList,
                 type = "healingTaken",
                 prev = self.MenuMain,
-                next = self.MenuPlayer,
+                next = self.MenuPlayerSelection,
                 sort = function(a,b) return a.t > b.t end,
             },
             ["Player Damage Done Breakdown"] = {
@@ -300,7 +300,7 @@ function GalaxyMeter:OnLoad()
                 display = self.GetPlayerList,
                 report = self.ReportGenericList,
                 type = "damageOut",
-                prev = self.MenuPlayer,
+                prev = self.MenuPrevious,
                 next = self.MenuPlayerSpell,
                 sort = function(a,b) return a.t > b.t end,
             },
@@ -310,7 +310,7 @@ function GalaxyMeter:OnLoad()
                 display = self.GetPlayerList,
                 report = self.ReportGenericList,
                 type = "damageIn",
-                prev = self.MenuPlayer,
+                prev = self.MenuPrevious,
                 next = self.MenuPlayerSpell,
                 sort = function(a,b) return a.t > b.t end,
             },
@@ -320,7 +320,7 @@ function GalaxyMeter:OnLoad()
                 display = self.GetPlayerList,
                 report = self.ReportGenericList,
                 type = "healingOut",
-                prev = self.MenuPlayer,
+                prev = self.MenuPrevious,
                 next = self.MenuPlayerSpell,
                 sort = function(a,b) return a.t > b.t end,
             },
@@ -330,7 +330,7 @@ function GalaxyMeter:OnLoad()
                 display = self.GetPlayerList,
                 report = self.ReportGenericList,
                 type = "healingIn",
-                prev = self.MenuPlayer,
+                prev = self.MenuPrevious,
                 next = self.MenuPlayerSpell,
                 sort = function(a,b) return a.t > b.t end,
             },
@@ -339,7 +339,7 @@ function GalaxyMeter:OnLoad()
 				pattern = "",
 				display = self.GetSpellList,
 				report = self.ReportGenericList,
-				prev = self.MenuPlayer,
+				prev = self.MenuPrevious,
 				next = nil,
 				sort = nil,
 			},
@@ -371,6 +371,16 @@ function GalaxyMeter:OnLoad()
 				--display = self.GetDispelList,
 				sort = function(a,b) return a.t > b.t end,
 			},
+			["Overhealing"] = {
+				name = "Overhealing",
+				pattern = "%s's Overhealing",
+				display = self.GetOverallList,
+				report = self.ReportGenericList,
+				type = "overheal",
+				prev = self.MenuMain,
+				next = nil,
+				sort = function(a,b) return a.t > b.t end,
+			},
         }
 
         self.tMainMenu = {
@@ -382,6 +392,7 @@ function GalaxyMeter:OnLoad()
 			["Deaths"] = self.tModes["Deaths"],
 			["Threat"] = self.tModes["Threat"],
 			["Dispels"] = self.tModes["Dispels"],
+			["Overhealing"] = self.tModes["Overhealing"],
 		}
 
 		self.tModeFromSubType = {
@@ -1106,7 +1117,6 @@ end
 
 
 function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
-
 	self:Rover("CombatLogDeflect", tEventArgs)
 
 	local tInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
@@ -1565,8 +1575,8 @@ function GalaxyMeter:GetPlayer(tLog, tEvent)
         tLog[playerName] = player
     end
 
-    self:Rover("tCurrentLog: GetPlayer", tLog)
-    self:Rover("tEvent: GetPlayer", tEvent)
+    --self:Rover("tCurrentLog: GetPlayer", tLog)
+    --self:Rover("tEvent: GetPlayer", tEvent)
 
     return player
 end
@@ -1595,13 +1605,10 @@ function GalaxyMeter:GetSpell(tSpellTypeLog, spellName)
 
             -- Totals
             total = 0,                  -- total damage, totalNormal + totalCrit
-            --totalNormal = 0,          -- total damage from hits, excludes crit damage
             totalCrit = 0,              -- total damage from crits
             totalShield = 0,            -- damage or healing done to shields
             totalAbsorption = 0,        --
-            avg = 0,
-            avgCrit = 0,
-            --min = 0, max = 0, minCrit = 0, maxCrit = 0,
+            avg = 0, avgCrit = 0,
         }
     end
 
@@ -1619,6 +1626,10 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
 		tSpell.deflectCount = tSpell.deflectCount + 1
 		-- We're done here, move along
 		return
+	end
+
+	if tEvent.Overheal then
+		tSpell.overheal = (tSpell.overheal or 0) + tEvent.Overheal
 	end
 
 	if not tSpell.dmgType then tSpell.dmgType = tEvent.DamageType end
@@ -1672,34 +1683,21 @@ function GalaxyMeter:SetPlayerSpellUpdated(tEvent)
 	-- I don't think we need to set or check the damaged/healed tables as the check will be done on the receiving end
 
 	if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
-		--changeLog.healingDone, changeLog.healingTaken = true, true
-		--changeLog.healed[tEvent.Target] = true
 		changeLog.healingOut[spellName], changeLog.healingIn[spellName] = true, true
 
 	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingOut then
-		--changeLog.healingDone, changeLog.healed[tEvent.Target] = true, true
 		changeLog.healingOut[spellName] = true
 
 	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingIn then
-		--changeLog.healingTaken = true
 		changeLog.healingIn[spellName] = true
 
 	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageInOut then
-		--changeLog.damageDone, changeLog.damageTaken = true, true
-		--changeLog.damaged[tEvent.Target] = true
 		changeLog.damageOut[spellName], changeLog.damageIn[spellName] = true, true
 
 	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageOut then
-		--if not tEvent.Deflect then
-		--	changeLog.damageDone = true
-			--changeLog.damaged[tEvent.Target] = true
-		--end
 		changeLog.damageOut[spellName] = true
 
 	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageIn then
-		--if not tEvent.Deflect then
-		--	changeLog.damageTaken = true
-		--end
 		changeLog.damageIn[spellName] = true
 
 	else
@@ -1710,7 +1708,7 @@ function GalaxyMeter:SetPlayerSpellUpdated(tEvent)
 
 	end
 
-	self:Rover("changeLog", changeLog)
+	--self:Rover("changeLog", changeLog)
 
 end
 
@@ -1747,6 +1745,10 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
         player.healingTaken = player.healingTaken + nAmount
 		player.healed[tEvent.Target] = (player.healed[tEvent.Target] or 0) + nAmount
 
+		if tEvent.Overheal > 0 then
+			player.overheal = (player.overheal or 0) + tEvent.Overheal
+		end
+
         local spellOut = self:GetSpell(player.healingOut, spellName)
         local spellIn = self:GetSpell(player.healingIn, spellName)
 
@@ -1758,6 +1760,10 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingOut then
         player.healingDone = player.healingDone + nAmount
 		player.healed[tEvent.Target] = (player.healed[tEvent.Target] or 0) + nAmount
+
+		if tEvent.Overheal > 0 then
+			player.overheal = (player.overheal or 0) + tEvent.Overheal
+		end
 
         spell = self:GetSpell(player.healingOut, spellName)
 
@@ -1838,7 +1844,7 @@ function GalaxyMeter:GetOverallList()
 
     for k, v in pairs(tSegmentType) do
 
-		local nAmount = v[mode.type]
+		local nAmount = v[mode.type] or 0
 
 		tTotal.t = tTotal.t + nAmount
 
@@ -1852,29 +1858,14 @@ function GalaxyMeter:GetOverallList()
 
 				-- Call next/prev
 				-- args are the specific player log table, subType
-				if btn == 0 then
+				if btn == 0 and mode.next then
 					gLog:info("Overall -> Next " .. k .. " " .. mode.type)
-
-					--gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
-
-					self.vars.tCurrentPlayer = tSegmentType[k]
-
-					self:PushMode()
-					-- damageDone -> "Player Damage Done Breakdown", etc
-					self.vars.tMode = self.tModeFromSubType[mode.type]
-
-					self.vars.tCurrentPlayerSpells = tSegmentType[k][self.vars.tMode.type]
-
-					self:Rover("tCurrentPlayer", self.vars.tCurrentPlayer)
-					self:Rover("tCurrentPlayerSpells", self.vars.tCurrentPlayerSpells)
-
-					self.bDirty = true
+					mode.next(self, k, tSegmentType)
 
 				elseif btn == 1 and mode.prev then
 					gLog:info("Overall -> Prev")
 					--m.Rover(m, "GetOverallList: tList", m.vars.tMode)
-
-					self.vars.tMode.prev(m, v, mode.type)
+					mode.prev(self, v)
 
 					self.bDirty = true
 				end
@@ -1925,27 +1916,14 @@ function GalaxyMeter:GetPlayerList()
 			c = kDamageTypeToColor[v.dmgType],
 			tStr = nil,
 			click = function(m, btn)
-				if btn == 0 then
+				if btn == 0 and mode.next then
 					gLog:info("Player -> Next")
-
-					self:PushMode()
-
-					self.vars.tCurrentSpell = v
-
-					self.vars.tMode = self.tModes["Spell Breakdown"]
-
-					self.bDirty = true
+					mode.next(self, v)
 
 				elseif btn == 1 then
 					gLog:info("Player -> Prev")
 					--m.Rover(m, "GetOverallList: tList", m.vars.tMode)
-
-					local tMode = self:PopMode()
-					if tMode then
-						self.vars.tMode = tMode
-						self.bDirty = true
-					end
-
+					mode.prev(self)
 				end
 			end
         })
@@ -1977,6 +1955,75 @@ function GalaxyMeter:GetPlayerList()
 end
 
 
+--[[
+function GalaxyMeter:GetOverhealList()
+
+	local tLogSegment = self.vars.tLogDisplay
+	local mode = self.vars.tMode
+
+	local tSegmentType = tLogSegment.players
+
+	local tList = {}
+	local tTotal = {t=0}
+
+	for k, v in pairs(tSegmentType) do
+
+		local nAmount = v[mode.type]
+
+		tTotal.t = tTotal.t + nAmount
+
+		table.insert(tList, {
+			n = k,
+			t = nAmount,
+			c = self.ClassToColor[v.classId],
+			click = function(m, btn)
+				gLog:info("OverallMenu, current mode =")
+				gLog:info(mode)
+
+				-- Call next/prev
+				-- args are the specific player log table, subType
+				if btn == 0 then
+					gLog:info("Overall -> Next " .. k .. " " .. mode.type)
+
+					--gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
+
+					self.vars.tCurrentPlayer = tSegmentType[k]
+
+					self:PushMode()
+					-- damageDone -> "Player Damage Done Breakdown", etc
+					self.vars.tMode = self.tModeFromSubType[mode.type]
+
+					self.vars.tCurrentPlayerSpells = tSegmentType[k][self.vars.tMode.type]
+
+					self:Rover("tCurrentPlayer", self.vars.tCurrentPlayer)
+					self:Rover("tCurrentPlayerSpells", self.vars.tCurrentPlayerSpells)
+
+					self.bDirty = true
+
+				elseif btn == 1 and mode.prev then
+					gLog:info("Overall -> Prev")
+					--m.Rover(m, "GetOverallList: tList", m.vars.tMode)
+
+					self.vars.tMode.prev(m, v, mode.type)
+
+					self.bDirty = true
+				end
+
+			end
+		})
+	end
+
+	local strTotalText = string.format("%s - %d (%.2f) - %s",
+		string.format(mode.pattern, tLogSegment.name),
+		tTotal.t,
+		tTotal.t / tLogSegment.combat_length,
+		self:SecondsToString(tLogSegment.combat_length))
+
+	return tList, tTotal, mode.name, strTotalText
+end
+--]]
+
+
 function GalaxyMeter:GetSpellList()
 	local tSpell = self.vars.tCurrentSpell
 
@@ -1987,11 +2034,7 @@ function GalaxyMeter:GetSpellList()
 
 	local cFunc = function(m, btn)
 		if btn == 1 then
-			local tMode = self:PopMode()
-			if tMode then
-				self.vars.tMode = tMode
-				self.bDirty = true
-			end
+			self.vars.tMode.prev(self)
 		end
 	end
 
@@ -2328,6 +2371,49 @@ end
 
 
 -- A player was clicked from an Overall menu, update the mode to the appropriate selection
+-- @param k sub-subsection in log segment
+-- @param tSegmentType subsection in main log, ie players or mobs
+function GalaxyMeter:MenuPlayerSelection(k, tSegmentType)
+
+	local mode = self.vars.tMode
+
+	--gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
+
+	self.vars.tCurrentPlayer = tSegmentType[k]
+
+	self:PushMode()
+	-- damageDone -> "Player Damage Done Breakdown", etc
+	self.vars.tMode = self.tModeFromSubType[mode.type]
+
+	self.vars.tCurrentPlayerSpells = tSegmentType[k][self.vars.tMode.type]
+
+	self:Rover("tCurrentPlayer", self.vars.tCurrentPlayer)
+	self:Rover("tCurrentPlayerSpells", self.vars.tCurrentPlayerSpells)
+
+	self.bDirty = true
+end
+
+
+function GalaxyMeter:MenuPlayerSpell(tSpell)
+	self:PushMode()
+
+	self.vars.tCurrentSpell = tSpell
+
+	self.vars.tMode = self.tModes["Spell Breakdown"]
+
+	self.bDirty = true
+end
+
+
+function GalaxyMeter:MenuPrevious()
+	local tMode = self:PopMode()
+	if tMode then
+		self.vars.tMode = tMode
+		self.bDirty = true
+	end
+end
+
+
 -- @param tLogPlayer Selected player
 -- @param subType log subtype damageIn/Out etc
 --[[
@@ -2402,12 +2488,28 @@ end
 function GalaxyMeter:OnListItemButtonUp( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
     if self.tListItemClicked == wndControl then
 		self.tListItemClicked = nil
-        gLog:info(string.format("control %s id %d, name '%s', button %d", tostring(wndControl), wndControl:GetId(), wndControl:GetName(), tostring(eMouseButton)))
+        --gLog:info(string.format("control %s id %d, name '%s', button %d", tostring(wndControl), wndControl:GetId(), wndControl:GetName(), tostring(eMouseButton)))
 
         local id = wndControl:GetId()
 
-        -- find relevant clicked menu item based on id of clicked control
-        for i,v in ipairs(self.tItems) do
+        -- find menu item from id of clicked control
+        for i, v in pairs(self.tItems) do
+
+			--[[
+			if v.id == id then
+				if bDebug then
+					gLog:info("OnClick() " .. tostring(eMouseButton))
+					gLog:info(v)
+				end
+				if eMouseButton == 0 and v.next then
+					v.next(self)
+				elseif eMouseButton == 1 and v.prev then
+					v.prev(self)
+				end
+			end
+			--]]
+
+
             if v.id == id and v.OnClick then
 				if bDebug then
 					gLog:info("Calling OnClick()")
@@ -2419,6 +2521,7 @@ function GalaxyMeter:OnListItemButtonUp( wndHandler, wndControl, eMouseButton, n
 					self:RefreshDisplay()
 				end
             end
+
         end
 	end
 end
