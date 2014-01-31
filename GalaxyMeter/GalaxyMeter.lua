@@ -171,12 +171,8 @@ function GalaxyMeter:OnLoad()
 		
 		-- Self Combat Logging
 		Apollo.RegisterEventHandler("UnitEnteredCombat", 				"OnEnteredCombat", self)
-		--Apollo.RegisterEventHandler("AttackMissed", 					"OnAttackMissed", self)
 		--Apollo.RegisterEventHandler("SpellCastFailed", 				"OnSpellCastFailed", self)
 		--Apollo.RegisterEventHandler("SpellEffectCast", 				"OnSpellEffectCast", self)
-		--Apollo.RegisterEventHandler("DamageOrHealingDone", 				"OnDamageOrHealingDone", self)
-		--Apollo.RegisterEventHandler("TransferenceTaken", 				"OnTransferenceTaken", self)
-		--Apollo.RegisterEventHandler("TransferenceDone", 				"OnTransferenceDone", self)
 		--Apollo.RegisterEventHandler("CombatLogString", 				"OnCombatLogString", self)
 		--Apollo.RegisterEventHandler("GenericEvent_CombatLogString", 	"OnCombatLogString", self)
 		Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
@@ -190,6 +186,7 @@ function GalaxyMeter:OnLoad()
 		Apollo.RegisterEventHandler("CombatLogDeflect", 				"OnCombatLogDeflect", self)
 		Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
 		Apollo.RegisterEventHandler("CombatLogResurrect",				"OnCombatLogResurrect", self)
+		Apollo.RegisterEventHandler("CombatLogTransference",			"OnCombatLogTransference", self)
 
 		-- Chat: Shared Logging
 		if bGroupSync then
@@ -218,7 +215,8 @@ function GalaxyMeter:OnLoad()
 		self.Children = {}
 		self.Children.TimeText = self.wndMain:FindChild("Time_Text")
 		self.Children.DisplayText = self.wndMain:FindChild("Display_Text")
-		self.Children.EncounterButton = self.wndMain:FindChild("EncounterButton")	
+		--self.Children.EncounterButton = self.wndMain:FindChild("EncounterButton")
+		self.Children.EncounterText = self.wndMain:FindChild("EncounterText")
 		self.Children.ModeButton_Left = self.wndMain:FindChild("ModeButton_Left")		
 		self.Children.ModeButton_Right = self.wndMain:FindChild("ModeButton_Right")
 		self.Children.ConfigButton = self.wndMain:FindChild("ConfigButton")	
@@ -226,7 +224,7 @@ function GalaxyMeter:OnLoad()
 		self.Children.CloseButton = self.wndMain:FindChild("CloseButton")
 		self.Children.EncItemList = self.wndEncList:FindChild("ItemList")
 		
-		self.Children.EncounterButton:SetText("")
+		self.Children.EncounterText:SetText("")
 		self.Children.TimeText:SetText("")
 		self.Children.DisplayText:SetText("")
 		
@@ -985,7 +983,7 @@ function GalaxyMeter:SetLogTitle(title)
 	if self.tCurrentLog.name == "" then
 		self.tCurrentLog.name = title
 		if self.tCurrentLog == self.vars.tLogDisplay then
-			self.Children.EncounterButton:SetText(title)
+			self.Children.EncounterText:SetText(title)
 		end
 	end
 end
@@ -1009,12 +1007,9 @@ function GalaxyMeter:GetUnitName(unit)
 end
 
 
-function GalaxyMeter:IsHealEvent(eType)
-    return (eType == GameLib.CodeEnumDamageType.Heal or eType == GameLib.CodeEnumDamageType.HealShields)
-end
-
-
 function GalaxyMeter:OnCombatLogDispel(tEventArgs)
+	gLog:info("OnCombatLogDispel()")
+	gLog:info(tEventArgs)
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
 	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
@@ -1043,6 +1038,8 @@ end
 
 
 function GalaxyMeter:OnCombatLogInterrupted(tEventArgs)
+	gLog:info("OnCombatLogInterrupted()")
+	gLog:info(tEventArgs)
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true)
 	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
@@ -1069,6 +1066,10 @@ end
 
 
 function GalaxyMeter:OnCombatLogModifyInterruptArmor(tEventArgs)
+
+	gLog:info("OnCombatLogModifyInterruptArmor()")
+	gLog:info(tEventArgs)
+
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
 	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
@@ -1093,6 +1094,8 @@ end
 
 
 function GalaxyMeter:OnCombatLogDelayDeath(tEventArgs)
+	gLog:info("OnCombatLogDelayDeath()")
+	gLog:info(tEventArgs)
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, false, true)
 	local strSaved = String_GetWeaselString(Apollo.GetString("CombatLog_NotDeadYet"), tCastInfo.strCaster, tCastInfo.strSpellName)
@@ -1102,6 +1105,8 @@ end
 
 
 function GalaxyMeter:OnCombatLogDeath(tEventArgs)
+	gLog:info("OnCombatLogDeath()")
+	gLog:info(tEventArgs)
 	--[[
 	self:PostOnChannel(string.format("<P TextColor=\"%s\">%s</P>", kstrStateColor, Apollo.GetString("CombatLog_Death")))
 	--]]
@@ -1109,10 +1114,61 @@ end
 
 
 function GalaxyMeter:OnCombatLogAbsorption(tEventArgs)
+	gLog:info("OnCombatLogAbsorption()")
+	gLog:info(tEventArgs)
 end
 
 
 function GalaxyMeter:OnCombatLogResurrect(tEventArgs)
+end
+
+
+function GalaxyMeter:OnCombatLogTransference(tEventArgs)
+	-- OnCombatLogDamage does exactly what we need so just pass along the tEventArgs
+	self:OnCombatLogDamage(tEventArgs)
+
+	gLog:info("OnCombatLogTransference()")
+	gLog:info(tEventArgs)
+
+	--[[
+	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, false)
+	-- healing data is stored in a table where each subtable contains a different vital that was healed
+	for _, tHeal in ipairs(tEventArgs.tHealData) do
+		local strVital = Apollo.GetString("CombatLog_UnknownVital")
+		if tHeal.eVitalType then
+			strVital = Unit.GetVitalTable()[tHeal.eVitalType]["strName"]
+		end
+
+		local strAmount = string.format("<T TextColor=\"%s\">%s</T>", self.crVitalModifier, tHeal.nHealAmount)
+		local strResult = String_GetWeaselString(Apollo.GetString("CombatLog_GainVital"), tCastInfo.strCaster, strAmount, strVital, tCastInfo.strTarget)
+
+		if tHeal.nOverheal and tHeal.nOverheal > 0 then
+			local strOverhealString = ""
+			if tHeal.eVitalType == GameLib.CodeEnumVital.ShieldCapacity then
+				strOverhealString = Apollo.GetString("CombatLog_Overshield")
+			else
+				strOverhealString = Apollo.GetString("CombatLog_Overheal")
+			end
+			strAmount = string.format("<T TextColor=\"white\">%s</T>", tHeal.nOverheal)
+			strResult = String_GetWeaselString(strOverhealString, strResult, strAmount)
+		end
+
+		if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
+			strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), strResult)
+		end
+
+		if not self.unitPlayer then
+			self.unitPlayer = GameLib.GetControlledUnit()
+		end
+
+		-- TODO: Analyze if we can refactor (this has no spell)
+		local strColor = kstrColorCombatLogIncomingGood
+		if tEventArgs.unitCaster ~= self.unitPlayer then
+			strColor = kstrColorCombatLogOutgoing
+		end
+		self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", strColor, strResult))
+	end
+	--]]
 end
 
 
@@ -2139,7 +2195,7 @@ end
 
 
 -- Main list display function, this will assemble list items and set their click handler
--- TODO Maybe combine this with Get*List or something to avoid to much looping?
+-- TODO Maybe combine this with Get*List or something to avoid so much looping?
 function GalaxyMeter:DisplayList(Listing)
 
 	--self:Rover("DisplayList: List", Listing)
@@ -2256,8 +2312,10 @@ end
 function GalaxyMeter:OnClearAll()
 	--if not self.bInCombat then return nil end
 	self.log = {}
+	self:NewLogSegment()
 	self.vars.nLogIndex = 0
-	self.vars.tLogDisplay = 0
+	self.vars.tLogDisplay = self.vars.tCurentLog
+	self.vars.tMode = self.tModes["Main Menu"]
 	self:RefreshDisplay()
 end
 
@@ -2414,21 +2472,6 @@ function GalaxyMeter:MenuPrevious()
 end
 
 
--- @param tLogPlayer Selected player
--- @param subType log subtype damageIn/Out etc
---[[
-function GalaxyMeter:MenuPlayerSelection(tLogPlayer, subType)
-
-	gLog:info("MenuPlayerSelection()")
-	gLog:info(tLogPlayer)
-
-	gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
-
-	-- damageDone -> "Player Damage Done Breakdown"
-	self.vars.tModeLast = self.vars.tMode
-	self.vars.tMode = self.tModeFromSubType[subType]
-end
---]]
 
 
 -----------------------------------------------------------------------------------------------
@@ -2468,8 +2511,6 @@ function GalaxyMeter:AddItem(i)
 	wnd:FindChild("Highlight"):Show(false)
 
 	wnd:SetData(i)
-
-    self:Rover("tItems", self.tItems)
 	
 	return self.tItems[i]
 end
@@ -2581,7 +2622,7 @@ function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButt
 	-- Should we do a sanity check on the current mode? For now just force back to main menu
 	self.vars.tMode = self.tModes["Main Menu"]
 
-	self.Children.EncounterButton:SetText(self.vars.tLogDisplay.name)
+	self.Children.EncounterText:SetText(self.vars.tLogDisplay.name)
 	
 	self:HideEncounterDropDown()
 
