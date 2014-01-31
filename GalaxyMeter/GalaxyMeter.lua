@@ -1354,6 +1354,9 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 
 	if bSpell then
 		tInfo.strSpellName = self:HelperGetNameElseUnknown(tEventArgs.splCallingSpell)
+		if tEventArgs.bPeriodic then
+			tInfo.strSpellName = tInfo.strSpellName .. " (Dot)"
+		end
 	end
 
 	-- TODO It's probably better to detect pets by using unitCaster/TargetOwner
