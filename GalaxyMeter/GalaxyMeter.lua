@@ -24,8 +24,7 @@ local Queue
 -----------------------------------------------------------------------------------------------
 -- Constants
 -----------------------------------------------------------------------------------------------
-local GalMet_Version = 13
-local GalMet_LogVersion = 5
+local GalMet_Version = 14
 
 
 local kcrSelectedText = CColor.new(1,1,1,1)
@@ -85,15 +84,6 @@ local eTypeDamageOrHealing = {
 }
 
 
--- Message types for use in the ICCommLib channel
-local eMsgType = {
-	CombatEvent = 0,
-	CombatStopEvent = 1,
-	Spell = 2,
-	Totals = 3,
-	List = 4,	-- Damaged/Healed list?
-}
-
 -----------------------------------------------------------------------------------------------
 -- Initialization
 -----------------------------------------------------------------------------------------------
@@ -117,7 +107,7 @@ function GalaxyMeter:OnLoad()
 	local GeminiLogging = Apollo.GetPackage("GeminiLogging-1.1").tPackage
 
 	gLog = GeminiLogging:GetLogger({
-		level = GeminiLogging.ERROR,
+		level = GeminiLogging.FATAL,
 		pattern = "[%d] %n [%c:%l] - %m",
 		appender = "GeminiConsole"
 	})
@@ -160,16 +150,6 @@ function GalaxyMeter:OnLoad()
 
 	Apollo.SetConsoleVariable("cmbtlog.disableOtherPlayers", false)
 
-	-- Combat Timer
-	Apollo.CreateTimer("CombatTimer", 0.05, true)
-	Apollo.RegisterTimerHandler("CombatTimer", 						"OnTimer", self)
-	Apollo.StopTimer("CombatTimer")
-
-	-- Player Check Timer
-	Apollo.CreateTimer("PlayerCheckTimer", 1, true)	-- Pulsing Timer
-	Apollo.RegisterTimerHandler("PlayerCheckTimer", 				"OnPlayerCheckTimer", self)
-	Apollo.StopTimer("PlayerCheckTimer")
-
 	-- Load Forms
 	self.xmlMainDoc = XmlDoc.CreateFromFile("GalaxyMeter.xml")
 
@@ -203,6 +183,14 @@ function GalaxyMeter:OnLoad()
 	-- Display Order (For Reducing On Screen Drawing)
 	self.DisplayOrder = {}
 
+	-- Display Timer
+	self.timerDisplay = ApolloTimer.Create(0.1, true, "OnDisplayTimer", self)
+	self.timerDisplay:Stop()
+
+	-- Player Check Timer
+	self.timerPulse = ApolloTimer.Create(1, true, "OnPulse", self)
+	self.timerPulse:Stop()
+
 	self.ClassToColor = {
 		self:HexToCColor("855513"),	-- Warrior
 		self:HexToCColor("cf1518"),	-- Engineer
@@ -216,9 +204,6 @@ function GalaxyMeter:OnLoad()
 	-- Handled by Configure
 	self.settings = {
 		bDebug = false,
-		bGroupSync = false,
-		bSyncSpells = false,
-		nSyncFrequency = 5,
 		strReportChannel = "g",
 	}
 
@@ -437,7 +422,7 @@ function GalaxyMeter:OnLoad()
 		bGrouped = false,
 	}
 
-	Apollo.StartTimer("PlayerCheckTimer")
+	self.timerPulse:Start()
 
 	self.bNeedNewLog = true
 	self:NewLogSegment()
@@ -454,10 +439,8 @@ function GalaxyMeter:OnConfigure()
 	self:ConfigOn()
 end
 
------------------------------------------------------------------------------------------------
--- GalaxyMeter OnPlayerCheckTimer
------------------------------------------------------------------------------------------------
-function GalaxyMeter:OnPlayerCheckTimer()
+
+function GalaxyMeter:OnPulseTimer()
 	
 	local unitPlayer = GameLib.GetPlayerUnit()
 	if unitPlayer then
@@ -465,6 +448,29 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		self.unitPlayerId = self.unitPlayer:GetId()
 		self.PlayerId = tostring(self.unitPlayerId)
 		self.PlayerName = self.unitPlayer:GetName()
+		self.PlayerClassId = self.unitPlayer:GetClassId()
+	end
+
+	-- Stupid hack to properly set class ids instead of thru unit objects from combat log events
+	if self.vars.tLogDisplay then
+
+		local nMemberCount = GroupLib.GetMemberCount()
+		if nMemberCount == 0 and unitPlayer and self.vars.tLogDisplay.players[self.PlayerName] then
+			self.vars.tLogDisplay.players[self.PlayerName].classId = self.PlayerClassId
+		else
+
+			for i = 1, nMemberCount do
+				local tMemberInfo = GroupLib.GetGroupMember(i)
+				local unitMember = GroupLib.GetUnitForGroupMember(i)
+
+				local strCharName = tMemberInfo.strCharacterName
+
+				if unitMember and self.vars.tLogDisplay.players[strCharName] then
+					self.vars.tLogDisplay.players[strCharName].classId = unitMember:GetClassId()
+				end
+
+			end
+		end
 	end
 
 
@@ -480,114 +486,14 @@ function GalaxyMeter:OnPlayerCheckTimer()
 		--gLog:warn("no log checking timer")
 	end
 
-	if self.settings.bGroupSync then
-		if self.bInCombat and os.clock() - (self.tLastSync or 0) >= self.settings.nSyncFrequency then
-			local tChanged = self.tCurrentLog.changed
-
-			local tPlayer = self.tCurrentLog.players[self.PlayerName]
-
-			if not tPlayer then
-				gLog:fatal(string.format("Error finding player %s in current log", self.PlayerName))
-			else
-
-				--Always send damage/healing in/out
-				self:QueueSpellSync("t", {tPlayer.damageDone, tPlayer.damageTaken, tPlayer.healingDone, tPlayer.healingTaken})
-
-				if self.settings.bSyncSpells then
-					for spellType, spells in pairs(tChanged) do
-
-						for k, changed in pairs(spells) do
-							if changed then
-								--gLog:info("==> " .. k)
-
-								self:QueueSpellSync(spellType, k)
-
-								tChanged[spellType][k] = false
-							end
-						end
-					end
-				end
-
-				self.tLastSync = os.clock()
-
-				self:Rover("tSyncQueue", self.tSyncQueue)
-			end
-		end
-
-		if self.tSyncQueue then
-			if self.CommChannel then
-				local result = self.CommChannel:SendMessage(self.tSyncQueue)
-				if not result then
-					gLog:warn("Error calling SendMessage()")
-				end
-			end
-			self.tSyncQueue = nil
-			--gLog:info("Cleared tSyncQueue")
-		end
-
-	end
-
 end
 
-
---[[
-Format:
- {	name = "Player Name",
- 	msgs = {
- 		[1] = {
- 			type = type,
- 			data = data,
- 		},
- 		[2] = etc
- 	},
- }
- --]]
-function GalaxyMeter:QueueSpellSync(type, tData)
-	self.tSyncQueue = self.tSyncQueue or {name = self.PlayerName, msgs = {}}
-
-	local tMsg = nil
-
-	if type == "t" then
-		-- totals
-		tMsg = {
-			t = eMsgType.Totals,	-- totals update
-			d = tData				-- totals data
-		}
-	else
-		-- Find player and spell
-		local player = self.tCurrentLog.players[self.PlayerName]
-
-		if not player then
-			gLog:fatal(string.format("QueueSpellSync: Error finding player '%s'", self.PlayerName))
-		end
-
-		local spell = player[type][tData]
-
-		if not spell then
-			gLog:fatal(string.format("QueueSpellSync: Error finding spell '%s->%s'", type, tData))
-			return
-		end
-
-		tMsg = {
-			t = eMsgType.Spell,	-- spell update
-			s = type,			-- school
-			d = spell,			-- spell data
-		}
-
-	end
-
-	if tMsg then
-		table.insert(self.tSyncQueue.msgs, tMsg)
-	else
-		gLog:warn(string.format("tMsg nil in QueueSpellSync, type %s, data %s", type, tstring(tData)))
-	end
-end
 
 
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter OnTimer
 -----------------------------------------------------------------------------------------------
-function GalaxyMeter:OnTimer()
+function GalaxyMeter:OnDisplayTimer()
 	
 	self.tCurrentLog.combat_length = os.clock() - self.tCurrentLog.start
 
@@ -602,12 +508,13 @@ function GalaxyMeter:OnTimer()
 	end
 end
 
+
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter OnChangeWorld
 -----------------------------------------------------------------------------------------------
 function GalaxyMeter:OnChangeWorld()
 	-- Restarts Player Check Timer to update Player Id based on New Zone
-	Apollo.StartTimer("PlayerCheckTimer")
+	self.timerPulse:Start()
 end
 
 
@@ -643,7 +550,7 @@ function GalaxyMeter:StartLogSegment()
 	self.bDirty = true
 	self.bNeedNewLog = false
 
-	Apollo.StartTimer("CombatTimer")
+	self.timerDisplay:Start()
 end
 
 
@@ -655,12 +562,6 @@ function GalaxyMeter:NewLogSegment()
         name = "Current",	-- Segment name
         ["players"] = {},	-- Array containing players involved in this segment
         ["mobs"] = {},		-- Array containing mobs involved in this segment
-		["changed"] = {
-			["damageOut"] = {},
-			["damageIn"] = {},
-			["healingOut"] = {},
-			["healingIn"] = {},
-		},	-- Array indicating which spells have been recently updated
     }
 
     if self.log then
@@ -687,7 +588,8 @@ function GalaxyMeter:NewLogSegment()
         self.vars.tLogDisplay = self.log[self.vars.nLogIndex]
     end
 
-    self:Rover("NewLogSegment: vars", self.vars)
+
+	self:Rover("NewLogSegment: vars", self.vars)
 	self:Rover("log", self.log)
 end
 
@@ -696,21 +598,14 @@ end
 function GalaxyMeter:PushLogSegment()
 	gLog:info("Pushing log segment")
 
-    --self:Rover("lastLog", self.tCurrentLog)
-    --self:Rover("log", self.log)
-
     -- Pop off oldest, TODO Add config option to keep N old logs
-    if #self.log >= 50 then
+    if #self.log >= 30 then
         table.remove(self.log)
     end
 
-    Apollo.StopTimer("CombatTimer")
-
-	-- We no longer need the changed section
-	self.tCurrentLog.changed = nil
+	self.timerDisplay:Stop()
 
     self:NewLogSegment()
-
 end
 
 
@@ -718,9 +613,6 @@ end
 -- GalaxyMeter OnEnteredCombat
 -----------------------------------------------------------------------------------------------
 function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
-	--if not self.wndMain or not self.wndMain:IsValid() then
-	--	return
-    --end
 
     -- TODO: Keep track of group members combat status solely using this event?
 	
@@ -731,13 +623,6 @@ function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 			-- Hm, we shouldnt set this flag if the spell was a heal...
 			self.bNeedNewLog = true
             gLog:info("Setting bNeedNewLog = true")
-        end
-
-		-- If we were in combat, and not anymore...
-        if self.bInCombat and not bInCombat then
-			gLog:info("Sending combat stop message")
-			self:SendCombatMessage(eMsgType.CombatStopEvent, {})
-			-- Combat timer will still run until the last member of the group exits combat
         end
 	
 		self.bInCombat = bInCombat
@@ -790,9 +675,6 @@ function GalaxyMeter:OnGalaxyMeterOn(strCmd, strArg)
 	elseif strArg == "debug" then
 		self.settings.bDebug = not self.settings.bDebug
 		gLog:info("bDebug = " .. tostring(self.settings.bDebug))
-	elseif strArg == "groupSync" then
-		self.settings.bGroupSync = not self.settings.bGroupSync
-		gLog:info("bGroupSync = " .. tostring(self.settings.bGroupSync))
 	elseif strArg == "spellSync" then
 		self.settings.bSyncSpells = not self.settings.bSyncSpells
 		gLog:info("bSyncSpells = " .. tostring(self.settings.bSyncSpells))
@@ -821,126 +703,6 @@ function GalaxyMeter:OnGalaxyMeterOn(strCmd, strArg)
 			gLog:info("Reporting to channel: " .. args[2])
 		end
 
-	end
-end
-
------------------------------------------------------------------------------------------------
--- Channel Manager Functions
------------------------------------------------------------------------------------------------
-function GalaxyMeter:SetGroupLogChannel(GroupLeader)
-	--Simple preventation to keep users from 'bumping' into the channel
-	local newChannel = string.format("GalMet_%s_%s_%d", GroupLeader, string.reverse(GroupLeader), GalMet_LogVersion)
-
-	if self.ChannelName ~= newChannel then
-		self.ChannelName = newChannel
-		self.CommChannel = ICCommLib.JoinChannel(self.ChannelName, "OnCombatMessage", self)
-	
-		gLog.info("Joined Channel '" .. self.ChannelName .. "'")
-	end
-end
-
-
-function GalaxyMeter:LeaveGroupLogChannel()
-	self.CommChannel = nil
-	self.ChannelName = ""
-end
-
-
-function GalaxyMeter:OnCombatMessage(channel, tData)
-
-	if not self.settings.bGroupSync or channel ~= self.CommChannel then return nil end
-
-	local playerName = tData.name
-
-	-- Ignore messages sent by yourself?
-	if tData.playerName == self.PlayerName then
-		gLog:warn("Ignored sync msg sent by self")
-		return
-	end
-
-	local player = self:GetPlayer(self.tCurrentLog.players, {PlayerName = playerName})
-
-	--gLog:info("=> data from " .. playerName)
-	--self:Rover("chanCombatMsg", tMsg)
-	--gLog:info(tData)
-
-	-- Assume that this group member is in combat
-	if self.tGroupMembers[playerName] == nil then
-		gLog:warn(string.format("OnCombatMessage, added %s to group list", playerName))
-		-- player class won't be set properly when initializing here
-		self.tGroupMembers[playerName] = {
-			combat = true,
-			name = playerName,	-- redundant
-		}
-	elseif not self.tGroupMembers[playerName].combat then
-		gLog:warn(string.format("Group member %s in combat now! old value: %s", playerName, tostring(self.tGroupMembers[playerName].combat)))
-		self.tGroupMembers[playerName].combat = true
-	end
-
-	local bGroupInCombat = self:GroupInCombat()
-
-	--gLog:info(string.format("** %s msg, start: %d, needNew: %s, groupInCombat: %s", tMsg.playerName, self.tCurrentLog.start, tostring(self.bNeedNewLog), tostring(bGroupInCombat)))
-
-	-- If the current segment hasnt started and a group member is in combat, flag for creation of a new log
-	if self.tCurrentLog.start == 0 and not self.bNeedNewLog then
-		if bGroupInCombat then
-			gLog:warn("OnCombatMessage: NeedNewLog = true")
-			self:StartLogSegment()
-
-			-- Ok we don't have the target information anymore so try to findthem by name in your group and get their target
-			-- and hope its correct
-			--self.tCurrentLog.name = tEvent.Target
-		else
-			--gLog:warn("group not in combat")
-		end
-	end
-
-	for k, v in pairs(tData.msgs) do
-		local tMsg = v
-
-		if self.tGroupMembers[playerName].class then
-			player.classId = self.tGroupMembers[playerName].class
-		end
-
-		if tMsg.t == eMsgType.CombatEvent then
-
-		elseif tMsg.t == eMsgType.Spell then
-			local spellSchool = tMsg.s
-			local spellName = tMsg.d.name
-
-			player[spellSchool][spellName] = tMsg.d
-
-			self.bDirty = true
-
-		elseif tMsg.t == eMsgType.Totals then
-			player.damageDone = tMsg.d[1]
-			player.damageTaken = tMsg.d[2]
-			player.healingDone = tMsg.d[3]
-			player.healingTaken = tMsg.d[4]
-
-			self.bDirty = true
-
-		elseif tMsg.t == eMsgType.CombatStopEvent then
-			gLog:warn("chanMsgCombatStopEvent from " .. playerName)
-			self.tGroupMembers[playerName].combat = false
-		end
-
-	end -- end for pairs(tData)
-end
-
-
-
-function GalaxyMeter:SendCombatMessage(eType, tEvent)
-	if self.settings.bGroupSync and self.CommChannel then
-		
-		local msg = {
-            name = self.PlayerName,
-			msgs = {}
-		}
-		msg.msgs[1] = {type = eType}
-
-		-- whatever just send immediately
-		self.CommChannel:SendMessage(msg)
 	end
 end
 
@@ -991,15 +753,11 @@ function GalaxyMeter:OnGroupJoin()
 	end
 	
 	self.vars.bGrouped = true
-	if self.settings.bGroupSync and GroupLeader then
-		self:SetGroupLogChannel(GroupLeader)
-	end
 end
 
 
 function GalaxyMeter:OnGroupLeft()
 	self.vars.bGrouped = false
-	self:LeaveGroupLogChannel()
 end
 
 function GalaxyMeter:OnGroupUpdated()
@@ -1138,7 +896,6 @@ function GalaxyMeter:OnCombatLogInterrupted(tEventArgs)
 	-- Spell that interrupted the casting spell
 	tEvent.strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName()
 
-	--self:SetPlayerSpellUpdated(tEvent)
 	self:UpdatePlayerInterrupt(tEvent)
 
 end
@@ -1292,7 +1049,7 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 	-- Guarantee that unitCaster and unitTarget exist
 	if not tEventArgs.unitCaster or not tEventArgs.unitTarget then
 		self:Rover("CLDeflect:error", tEventArgs)
-		gLog:fatal("OnCLDeflect - nil caster or target")
+		gLog:error("OnCLDeflect - nil caster or target")
 		return
 	end
 
@@ -1317,7 +1074,6 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 		gLog:info(string.format("OnDeflect: Set activeLog.name to %s", self.tCurrentLog.name))
 	end
 
-	--self:SetPlayerSpellUpdated(tEvent)
 	self:UpdatePlayerSpell(tEvent)
 end
 
@@ -1365,7 +1121,12 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 	-- Workaround for players dealing a severely reduced damage to target dummies
 	if self.tIsDummy[tEvent.Target] then
-		tEvent.Damage = tEventArgs.nRawDamage
+		if not tEventArgs.nRawDamage then
+			gLog:error(string.format("nRawDamage nil for %s", tEvent.SpellName or "Unknown"))
+			tEvent.Damage = tEventArgs.nDamageAmount
+		else
+			tEvent.Damage = tEventArgs.nRawDamage
+		end
 	else
 		tEvent.Damage = tEventArgs.nDamageAmount
 	end
@@ -1390,25 +1151,16 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 	end
 
 	if tEvent.TypeId > 0 and tEvent.Damage then
-		--self:SetPlayerSpellUpdated(tEvent)
 		self:UpdatePlayerSpell(tEvent)
 	else
-		gLog:fatal("OnCLDamage: Something went wrong!  Invalid type Id!")
-		return
+		gLog:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id %d, dmg raw %d, dmg %d", tEvent.TypeId, tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
+
 	end
 
 	-- Count pet actions as actions of the player, done after UpdateSpell because AddPlayer sets CasterClassId to CombatEvent.Caster
 	if not tEventArgs.unitCaster then
 		--gLog:info(string.format("Pet Damage, set CasterID to %s", CombatEvent.CasterId))
 		event.CasterClassId = self.unitPlayer:GetClassId()
-	else
-
-		-- Check unitCaster here to prevent nil caster events from being sent
-		--[[
-		if tEvent.Caster == self.PlayerName then
-			self:SendCombatMessage(eMsgType.CombatEvent, tEvent)
-		end
-		--]]
 	end
 end
 
@@ -1450,10 +1202,9 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 	tEvent.TypeId = self:GetHealEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
 
 	if tEvent.TypeId > 0 and tEvent.Damage then
-		--self:SetPlayerSpellUpdated(tEvent)
 		self:UpdatePlayerSpell(tEvent)
 	else
-		gLog:fatal("OnCLHeal: Something went wrong!  Invalid type Id!")
+		gLog:error("OnCLHeal: Something went wrong!  Invalid type Id!")
 		return
 	end
 end
@@ -1591,15 +1342,15 @@ function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
 
     --local playerUnit = GameLib.GetPlayerUnit()
 
-	if self.settings.bDebug then
-		if not self.unitPlayer then
-			gLog:warn("GetHealEventType: self.unitPlayer is nil!")
-			return 0
-		end
+
+	if not self.unitPlayer then
+		gLog:error("GetHealEventType: self.unitPlayer is nil!")
+		return 0
 	end
 
+
 	if not unitTarget or not unitCaster then
-		gLog:fatal(string.format("GetHealEventType() nil unitTarget or caster, caster[%d] %s",
+		gLog:error(string.format("GetHealEventType() nil unitTarget or caster, caster[%d] %s",
 			self:GetUnitId(unitCaster), self:GetUnitName(unitCaster)))
 		return 0
 	end
@@ -1639,6 +1390,8 @@ function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
 
 	local selfId = self.unitPlayer:GetId()
 
+	self:Rover("GetDmgType", {selfId = selfId, casterId = unitCaster:GetId(), targetId = unitTarget:GetId()})
+
     if unitTarget:GetId() == selfId then
 
         if unitCaster:GetId() == selfId then
@@ -1647,7 +1400,7 @@ function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
 
         return eTypeDamageOrHealing.PlayerDamageIn
 	else
-		self:Rover("GetDmgType", {selfId = selfId, casterId = unitCaster:GetId(), targetId = unitTarget:GetId()})
+
 
 		-- Ok so the dmg might be from a pet
 		if unitCaster:GetId() == selfId or (unitCaster:GetUnitOwner() and unitCaster:GetUnitOwner():GetId() == selfId) then
@@ -1656,7 +1409,7 @@ function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
        		return eTypeDamageOrHealing.PlayerDamageOut
 		else
 
-			gLog:fatal("Unknown dmg type")
+			gLog:error("Unknown dmg type")
 		end
     end
 end
@@ -1673,8 +1426,6 @@ end
 function GalaxyMeter:GetMob(tLog, tEvent)
 
     local strMobName = tEvent.Caster
-
-    --gLog:info(string.format("GetPlayer(tLog, %s)", playerName))
 
     local mob = self:FindMob(tLog, strMobName)
 
@@ -1705,8 +1456,10 @@ function GalaxyMeter:GetMob(tLog, tEvent)
         tLog[strMobName] = mob
     end
 
+	--[[
     self:Rover("tCurrentLog: GetMob", tLog)
     self:Rover("tEvent: GetMob", tEvent)
+	--]]
 
     return mob
 end
@@ -1723,8 +1476,6 @@ function GalaxyMeter:GetPlayer(tLog, tEvent)
 
 	-- This is the only place where tEvent.PlayerName is used, refactor!
     local playerName = tEvent.PlayerName
-
-    --gLog:info(string.format("GetPlayer(tLog, %s)", playerName))
 
     local player = tLog[playerName]
 
@@ -1754,11 +1505,17 @@ function GalaxyMeter:GetPlayer(tLog, tEvent)
 			healed = {},
 		}
 
+		--[[
 		if tEvent.bCaster then
 			player.classId = tEvent.CasterClassId
 		else
 			player.classId = tEvent.TargetClassId
 		end
+
+		if not player.classId then
+			gLog:error("nil classId in GetPlayer")
+		end
+		--]]
 
         tLog[playerName] = player
     end
@@ -1784,9 +1541,6 @@ function GalaxyMeter:GetSpell(tSpellTypeLog, spellName)
             castCount = 0,              -- total number of hits, includes crits
             critCount = 0,              -- total number of crits
             deflectCount = 0,
-            --missCount = 0,
-            --dodgeCount = 0,
-            --blockCount = 0,
 
             -- Totals
             total = 0,                  -- total damage, totalNormal + totalCrit
@@ -1848,7 +1602,7 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
 			tSpell.avgCrit = tSpell.totalCrit / tSpell.critCount
 		end
 
-		-- Dmg while vulnerable?
+		-- Dmg while vulnerable
 		if tEvent.Vulnerable then
 			tSpell.vulnCount = (tSpell.vulnCount or 0) + 1
 			tSpell.totalVuln = (tSpell.totalVuln or 0) + nAmount
@@ -1869,43 +1623,6 @@ function GalaxyMeter:TallySpellAmount(tEvent, tSpell)
 	end
 end
 
-
---
-function GalaxyMeter:SetPlayerSpellUpdated(tEvent)
-	local changeLog = self.tCurrentLog.changed
-
-	local spellName = tEvent.SpellName
-
-	-- I don't think we need to set or check the damaged/healed tables as the check will be done on the receiving end
-
-	if tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingInOut then
-		changeLog.healingOut[spellName], changeLog.healingIn[spellName] = true, true
-
-	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingOut then
-		changeLog.healingOut[spellName] = true
-
-	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerHealingIn then
-		changeLog.healingIn[spellName] = true
-
-	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageInOut then
-		changeLog.damageOut[spellName], changeLog.damageIn[spellName] = true, true
-
-	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageOut then
-		changeLog.damageOut[spellName] = true
-
-	elseif tEvent.TypeId == eTypeDamageOrHealing.PlayerDamageIn then
-		changeLog.damageIn[spellName] = true
-
-	else
-		self:Rover("SetPlayerSpellUpdated Error", tEvent)
-		gLog:fatal("Unknown type in SetPlayerSpellUpdated!")
-		gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
-			spellName, tEvent.Caster, tEvent.Target, tEvent.nAmount or 0))
-
-	end
-
-	--self:Rover("changeLog", changeLog)
-end
 
 
 function GalaxyMeter:UpdatePlayerInterrupt(tEvent)
@@ -1980,7 +1697,7 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     local activeLog = nil
 
 	if not nAmount and not tEvent.Deflect then
-		gLog:fatal("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
+		gLog:error("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
 		self:Rover("nil nAmount Spell", tEvent)
 		return
 	end
@@ -1990,6 +1707,12 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
     -- Finds existing or creates new player entry
     -- Make sure CombatEvent.classid is properly set to the player if their pet used a spell!!!
     local player = self:GetPlayer(activeLog, tEvent)
+
+	--[[
+	if not player.classId then
+		gLog:error(string.format("nil classId for player %s, spell %s", player.playerName, spellName))
+	end
+	--]]
 
     local spell = nil
 
@@ -2063,8 +1786,8 @@ function GalaxyMeter:UpdatePlayerSpell(tEvent)
 
 	else
 		self:Rover("UpdatePlayerSpell Error", tEvent)
-        gLog:fatal("Unknown type in UpdatePlayerSpell!")
-        gLog:fatal(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
+        gLog:error("Unknown type in UpdatePlayerSpell!")
+        gLog:error(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
             spellName, tEvent.Caster, tEvent.Target, nAmount or 0))
 
 		-- spell should be null here, safe to continue on...
@@ -2091,7 +1814,6 @@ function GalaxyMeter:OnChatMessage(channelCurrent, bAutoResponse, bGM, bSelf, st
 	local tMessage = {}
 	self:Rover("arMessage", arMessageSegments)
 	for i = 1, #arMessageSegments do
-	--for _, line in ipairs(arMessageSegments) do
 		table.insert(tMessage, arMessageSegments[i].strText)
 	end
 
@@ -2400,7 +2122,7 @@ function GalaxyMeter:GetSpellList()
 	local tSpell = tPlayerLog[self.vars.strModeType][self.vars.strCurrentSpellName]
 
 	if not tSpell then
-		gLog:fatal("GetSpellList() nil tSpell")
+		gLog:error("GetSpellList() nil tSpell")
 		return
 	end
 
@@ -2609,8 +2331,6 @@ end
 -- TODO Maybe combine this with Get*List or something to avoid so much looping?
 function GalaxyMeter:DisplayList(Listing)
 
-	--self:Rover("DisplayList", {Listing, self.tItems})
-
 	local Arrange = false
 	for k,v in ipairs(Listing) do
 		if not self.tItems[k] then
@@ -2723,6 +2443,10 @@ end
 
 -- when the Clear button is clicked
 function GalaxyMeter:OnClearAll()
+
+
+	gLog:info("OnClearAll()")
+
 	self.log = {}
 	self.bNeedNewLog = true
 	self:NewLogSegment()
@@ -2779,7 +2503,7 @@ function GalaxyMeter:SecondsToString(time)
 	if time >= 60 then
 		Time_String = string.format("%sm:%.0fs", Min , Sec )
 	else
-		Time_String = string.format("%.2fs", Sec )
+		Time_String = string.format("%.1fs", Sec )
 	end
 	return Time_String
 end
@@ -2855,10 +2579,10 @@ function GalaxyMeter:MenuPlayerSelection(strPlayerName, strSegmentType)
 
 	local mode = self.vars.tMode
 
-	--gLog:info(string.format("MenuPlayerSelection: %s -> %s", tLogPlayer.playerName, subType))
-
 	self.vars.strCurrentPlayerName = strPlayerName
 	self.vars.strCurrentLogType = strSegmentType
+
+	gLog:info(string.format("MenuPlayerSelection: %s -> %s", self.vars.strCurrentPlayerName, self.vars.strCurrentLogType))
 
 	self:PushMode()
 	-- damageDone -> "Player Damage Done Breakdown", etc
@@ -3065,11 +2789,6 @@ function GalaxyMeter:ConfigOn()
 end
 
 
-function GalaxyMeter:Pack(...)
-	return { ... }, select("#", ...)
-end
-
-
 function GalaxyMeter:OnSave(eType)
 	local tSave = {}
 
@@ -3079,7 +2798,7 @@ function GalaxyMeter:OnSave(eType)
 		tSave.settings = self.settings
 
 		--if self.wndMain then
-			tSave.settings.anchor = self:Pack(self.wndMain:GetAnchorOffsets())
+			tSave.settings.anchor = {self.wndMain:GetAnchorOffsets()}
 		--else
 		--	tSave.settings.anchor = self.settings.anchor
 		--end
