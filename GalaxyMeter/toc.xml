@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-<Addon Author="Humera &amp; Lemon King" APIVersion="7" Name="GalaxyMeter" Description="GalaxyMeter remake by Humera" Version="14">
+<Addon Author="Humera &amp; Lemon King" APIVersion="7" Name="GalaxyMeter" Description="GalaxyMeter remake by Humera" Version="15">
     <Script Name="drafto_LuaUtils.lua"/>
     <Script Name="inspect.lua"/>
     <Script Name="GeminiLogging.lua"/>
     <Script Name="GalaxyMeter.lua"/>
+    <Script Name="Interrupts.lua"/>
     <Form Name="GalaxyMeter.xml"/>
 </Addon>
