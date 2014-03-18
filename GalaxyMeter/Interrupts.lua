@@ -9,7 +9,7 @@ local GM = Apollo.GetAddon("GalaxyMeter")
 local Interrupts = {
 	EnumState = {
 		Unknown = 0,
-		Vulnerable = 1,
+		Casting = 1,
 	}
 }
 local Queue
@@ -22,6 +22,18 @@ Interrupts.__index = Interrupts
 
 local kTrackUnitType = {
 	NonPlayer = true,
+}
+
+local kDamageStrToColor = {
+	["Self"] 					= CColor.new(1, .75, 0, 1),
+	["DamageType_Physical"] 	= CColor.new(1, .5, 0, 1),
+	["DamageType_Tech"]			= CColor.new(.6, 0, 1, 1),
+	["DamageType_Magic"]		= CColor.new(0, 0, 1, 1),
+	["DamageType_Healing"]		= CColor.new(0, 1, 0, 1),
+	["DamageType_Fall"]			= CColor.new(.5, .5, .5, 1),
+	["DamageType_Suffocate"]	= CColor.new(.3, 0, 1, 1),
+	["DamageType_Unknown"]		= CColor.new(.5, .5, .5, 1),
+	["Red"]						= CColor.new(1, 0, 0, 1),
 }
 
 
@@ -38,10 +50,14 @@ function Interrupts:Init()
 
 	Queue = GM.Queue
 
-	--Apollo.RegisterEventHandler("CombatLogCCState",					"OnCombatLogCCState", self)
+
+	Apollo.SetConsoleVariable("cmbtlog.disableInterrupted", false)
+	Apollo.SetConsoleVariable("cmbtlog.disableModifyInterruptArmor", false)
+
+	Apollo.RegisterEventHandler("CombatLogCCState",					"OnCombatLogCCState", self)
 	--Apollo.RegisterEventHandler("CombatLogCCStateBreak",			"OnCombatLogCCStateBreak", self)
 	Apollo.RegisterEventHandler("CombatLogInterrupted",				"OnCombatLogInterrupted", self)
-	Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
+	--Apollo.RegisterEventHandler("CombatLogModifyInterruptArmor",	"OnCombatLogModifyInterruptArmor", self)
 
 
 	Apollo.RegisterEventHandler("GalaxyMeterLogStart",				"OnLogStarted", self)
@@ -49,6 +65,9 @@ function Interrupts:Init()
 
 	Apollo.RegisterEventHandler("UnitCreated",						"OnUnitCreated", self)
 	Apollo.RegisterEventHandler("UnitDestroyed",					"OnUnitDestroyed", self)
+
+	Apollo.RegisterEventHandler("TargetUnitChanged",				"OnTargetUnitChanged", self)
+	Apollo.RegisterEventHandler("UnitEnteredCombat",				"OnUnitEnteredCombat", self)
 
 	Apollo.RegisterEventHandler("VarChange_FrameCount",				"OnFrame", self)
 
@@ -64,7 +83,7 @@ function Interrupts:Init()
 		self.tSubTypeFromList[v] = k
 	end
 
-
+	--[[
 	GM:AddMenu("Player Interrupts", {
 		name = "Player Interrupts",
 		pattern = "Interrupts on %s",
@@ -79,6 +98,7 @@ function Interrupts:Init()
 			return GM:FormatAmount(...)
 		end
 	})
+	--]]
 
 
 	-- List of all mobs that casted something this segment
@@ -87,10 +107,14 @@ function Interrupts:Init()
 		--pattern = "%s's Casts",
 		type = "casts",
 		segType = "mobs",
-		display = GM.GetOverallList,
+		display = function(...)
+			return self:GetMobList(...)
+		end,
 		report = nil,
 		prev = GM.MenuPrevious,
-		next = self.MenuActorSelection,	-- Select specific mob to view its casts
+		next = function(...)
+			self:MenuActorSelection(...)	-- Select specific mob to view its casts
+		end,
 		sort = function(a,b) return a.t > b.t end,
 		format = function(...)
 			return GM:FormatAmount(...)
@@ -101,37 +125,98 @@ function Interrupts:Init()
 		["interrupts"] = {
 			name = "%s's Interrupts",
 			pattern = "",
-			display = self.GetInterruptList,
+			display = function()
+				return self:GetInterruptList()
+			end,
 			report = GM.ReportGenericList,
 			type = "interruptOut",
+			segType = "players",
 			prev = GM.MenuPrevious,
-			next = self.MenuScalarSelection,
+			next = function(...)
+				self:MenuScalarSelection(...)
+			end,
 			sort = function(a,b) return a.t > b.t end,
 		},
 
 		-- Display all casts of a specific mob
 		["casts"] = {
 			name = "%s's Casts",
-			display = self.GetCastList,
+			display = function(...)
+				return self:GetCastList(...)
+			end,
 			report = nil,
 			prev = GM.MenuPrevious,
-			next = self.MenuCastBreakdownSelection,	-- Select specific spell to get the breakdown
+			next = function(...)
+				GM:Rover("castModeNext", {self=self})
+				self:MenuCastBreakdownSelection(...)	-- Select specific spell to get the breakdown
+			end,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(from, to)
-				return string.format("%.1f - %.1f", from, to)
+
+				if not to then
+					return string.format("%.1f - Casting (%.1fs)", from, os.clock() - from)
+				end
+
+				return string.format("%.1f - %.1f (%.1fs)", from, to, to - from)
 			end
 		},
 	}
+
+	GM.Log:info("Interrupts:Init()")
 
 end
 
 
 function Interrupts:OnLogStarted()
-	self.tTrackedUnits = {}
+	--self.tTrackedUnits = {}
 end
 
 
 function Interrupts:OnLogStopped()
+end
+
+
+function Interrupts:GetMobList()
+
+	local tLogSegment = GM:GetLogDisplay()
+	local mode = GM:GetCurrentMode()
+
+	-- Grab segment type from mode: players/mobs/etc
+	local tSegmentType = tLogSegment[mode.segType]
+
+	-- Get total
+	local tTotal = {t = 0, c = kDamageStrToColor.Self, progress = 1}
+	tTotal.tStr = ""
+
+	local tList = {}
+	for k, v in pairs(tSegmentType) do
+
+		-- Only show people who have contributed
+		if v[mode.type] and #v[mode.type] > 0 then
+
+			local nAmount = #v[mode.type]
+
+			table.insert(tList, {
+				n = v.name,
+				t = nAmount,
+				tStr = "",
+				c = kDamageStrToColor.Red,
+				progress = 1,
+				click = function(m, btn)
+				-- arg is the specific actor log table
+					if btn == 0 and mode.next then
+						mode.next(v)
+
+					elseif btn == 1 and mode.prev then
+						-- MenuPrevious needs self reference to be GalaxyMeter
+						mode.prev(GM)
+					end
+				end
+			})
+		end
+	end
+
+	return tList, tTotal, mode.name, ""
 end
 
 
@@ -142,119 +227,139 @@ function Interrupts:GetCastList()
 
 	local tActor = GM:GetMob(tLogDisplay, nActorId)
 
+	local tTotal = {t = 0, c = kDamageStrToColor.Self, progress = 1}
+	tTotal.tStr = ""
+
 	local tList = {}
-	for k, v in pairs(tActor.casts) do
+	for i, v in ipairs(tActor.casts) do
 		table.insert(tList, {
-			n = mode.format(v.nStart, v.nStop),	-- Left text, Time from-to
-			t = k,	-- index
-			tStr = "",	-- right text
+			n = v.strSpell,	-- cast name
+			t = i,	-- index
+			tStr = mode.format(v.nStart, v.nStop),	-- Right text, Time from-to
+			c = kDamageStrToColor.Red,
 			progress = 1,
 			click = function(m, btn)
 				if btn == 0 and mode.next then
-					mode.next(self, v)
+					GM:Rover("CastListModeNext", {self=self, v=v, mode=mode})
+					mode.next(v)
 				elseif btn == 1 and mode.prev then
-					mode.prev(self)
+					-- MenuPrevious needs self reference to be GalaxyMeter
+					mode.prev(GM)
 				end
 			end
 		})
 	end
 
-	return tList, nil, mode.name, ""
+	return tList, tTotal, string.format(mode.name, tActor.name), ""
 end
 
 
-function Interrupts:GetCastBreakdown(tVulnDetail)
-	local mode = GM:GetCurrentMode()
-	local tLogDisplay = GM:GetLogDisplay()
-	local nActorId = GM:LogActorId()
+function Interrupts:GetCastBreakdown(tMobCast)
 
-	local tActor = GM:GetMob(tLogDisplay, nActorId)
-
-	local tList = {}
-	for k, v in pairs(tActor.casts) do
-		table.insert(tList, {
-			n = mode.format(v.nStart, v.nStop),	-- Left text, Player name
-			t = k,	-- index
-			tStr = "",	-- right text
-			progress = 1,
-			click = function(m, btn)
-				if btn == 0 and mode.next then
-					mode.next(self, v)
-				elseif btn == 1 and mode.prev then
-					mode.prev(self)
-				end
-			end
-		})
-	end
-
-	return tList, nil, mode.name, ""
-end
-
-
-function Interrupts:MenuCastBreakdownSelection(tVuln)
+	--GM:Rover("GetCastBreakdownStart", {self=self, tMobCast=tMobCast})
 
 	-- Find players who interrupted this mob during this time
+	local mode = GM:GetCurrentMode()
 
-	local newMode = {
-		display = function()
+	local tLogDisplay = GM:GetLogDisplay()
+	local tLogPlayers = tLogDisplay.players
 
-		end
+	local nActorId = GM:LogActorId()
+
+	if not nActorId then
+		GM:Rover("GCastBreakDownNilActor", {tMobCast=tMobCast})
+		return
+	end
+
+	local tTotal = {t = 0, c = kDamageStrToColor.Self, progress = 1,
+		n = string.format("%s: %s", GM:LogActorName(), mode.name), tStr = ""
 	}
 
-	self:PushMode(newMode)
+	local tList = {}
+	for playerName, tPlayer in pairs(tLogPlayers) do
+
+		-- If this particular individual began to proceed to interrupt this particular mobs spell
+		if tPlayer.interruptOut and tPlayer.interruptOut[nActorId] and tPlayer.interruptOut[nActorId][tMobCast.strSpell] then
+
+			-- Find interrupts within the time window
+			for idx, tPlayerCast in pairs(tPlayer.interruptOut[nActorId][tMobCast.strSpell]) do
+
+				if tPlayerCast.nTime >= tMobCast.nStart and tPlayerCast.nTime <= tMobCast.nStop then
+
+					table.insert(tList, {
+						n = string.format("%s: %s (%d)", playerName, tPlayerCast.strSpell, tPlayerCast.nAmount),
+						t = tPlayerCast.nTime,
+						tStr = string.format("%.1fs", tMobCast.nStop - tPlayerCast.nTime),	-- time remaining
+						progress = 0,
+						click = function(m, btn)
+							if btn == 1 and mode.prev then
+								-- MenuPrevious needs the self reference to be GalaxyMeter
+								mode.prev(GM)
+							end
+						end
+					})
+				end
+			end
+		end
+	end
+
+
+	--GM:Rover("GetCastBreakdownStop", {list=tList, players=tLogPlayers, tMobCast=tMobCast})
+
+	return tList, tTotal, mode.name, ""
+end
+
+
+function Interrupts:MenuCastBreakdownSelection(tMobCast)
+
+	GM:Rover("MenuCastBreakdown", {self=self, tMobCast=tMobCast})
+
+	local newMode = {
+		name = string.format("%s Interrupts", tMobCast.strSpell),
+		display = function()
+			return self:GetCastBreakdown(tMobCast)
+		end,
+		report = nil,
+		next = nil,
+		prev = GM.MenuPrevious,
+		sort = function(a, b) return a.t > b.t end,
+		format = function() return string.format() end
+	}
+
+	GM:PushMode(newMode)
+
+	GM:Dirty(true)
 end
 
 
 -- An actor was clicked from an Overall menu, update the mode to the appropriate selection
--- @param strName Actor name
-function Interrupts:MenuActorSelection(strName)
+-- @param tActor Actor table
+function Interrupts:MenuActorSelection(tActor)
+
+	--GM:Rover("InterruptMenuActorSelf", self)
 
 	local mode = GM:GetCurrentMode()
 
-	GM:LogActorName(strName)
-	GM:LogType(mode.type)
+	GM:LogActorName(tActor.name)
+	GM:LogType(mode.type) -- casts
 
-	local tLogDisplay = GM:GetLogDisplay()
-
-	local nActorId = nil
-
-	-- Find actor id
-	if mode.strCurrentModeType == "mobs" then
-		for id, v in pairs(tLogDisplay[mode.strCurrentModeType]) do
-			if v.name == strName then
-				nActorId = id
-				break
-			end
-		end
-	else
-		if tLogDisplay.players[strName] then
-			nActorId = tLogDisplay.players[strName].id
-		end
-	end
-
-	if nActorId == nil then
-		GM.Log:warn("Could not locate actor Id for " .. strName)
-		return
-	end
+	local nActorId = tActor.id
 
 	GM:LogActorId(nActorId)
 
-	GM.Log:info(string.format("MenuActorSelection: %s -> %s", strName, strSegmentType))
-
-	GM:LogModeType(self.tListFromSubType[mode.type])	-- Save this because as we delve deeper into menus the type isn't necessarily set
+	GM.Log:info(string.format("MenuActorSelection: %s -> %s", tActor.name, mode.type))
 
 	local newMode = self.tModeFromSubType[mode.type]
 
-	self:PushMode(newMode)
+	GM:PushMode(newMode)
 
-	--self.bDirty = true
+	GM:Dirty(true)
 end
 
 
--- Special case scalar list, we create a temporary mode tailored to the specific list we're interested in
-function Interrupts:MenuScalarSelection(name)
+function Interrupts:MenuCastSelection(name)
 
-	GM:Rover("ScalarSelection", {
+	GM:Rover("CastSelection", {
 		param_Name = name,
 		vars = self.vars,
 	})
@@ -306,46 +411,37 @@ function Interrupts:UpdatePlayerInterrupt(tEvent)
 	local playerId = GameLib.GetPlayerUnit():GetId()
 
 
-	if tEvent.CasterId == playerId and tEvent.TargetId == playerId then
+	if tEvent.nCasterId == playerId and tEvent.TargetId == playerId then
 		GM.Log:info("Self interrupt?")
 
 		--player.interrupts = (player.interrupts or 0) + 1
 		--player.interrupted = (player.interrupted or 0) + 1
 
-	elseif tEvent.CasterId == playerId then
+	elseif tEvent.nCasterId == playerId then
 		-- The player interrupted something
-		--gLog:info("Player interrupted " .. tEvent.Target)
-		--[[
+		GM.Log:info("Player interrupted " .. tEvent.strTarget)
+
+		GM:Rover("PlayerInterrupted", {player=player, event=tEvent})
+
 		player.interrupts = (player.interrupts or 0) + 1
-		player.interruptOut = player.interruptOut or {}
-
-		player.interruptOut[tEvent.Target] = player.interruptOut[tEvent.Target] or {}
-
-		local target = player.interruptOut[tEvent.Target]
-
-		if not target[tEvent.SpellName] then
-			target[tEvent.SpellName] = 1
-		else
-			target[tEvent.SpellName] = target[tEvent.SpellName] + 1
-		end
-		--]]
 
 		player.interruptOut = player.interruptOut or {}
-		player.interruptOut[tEvent.strTarget] = player.interruptOut[tEvent.strTarget] or {}
+		player.interruptOut[tEvent.nTargetId] = player.interruptOut[tEvent.nTargetId] or {}
 
-		local target = player.interruptOut[tEvent.strTarget]
+		local target = player.interruptOut[tEvent.nTargetId]
 
 		-- Spell that was interrupted
-		local spell = target[tEvent.strSpellName] or {}
+		target[tEvent.strInterruptedSpell] = target[tEvent.strInterruptedSpell] or {}
 
-		table.insert(spell, {
-			t = tEvent.nTime,
-			n = tEvent.nAmount,
-			spl = tEvent.splInterruptingSpell,
+		table.insert(target[tEvent.strInterruptedSpell], {
+			nTime = tEvent.nTime,
+			nAmount = tEvent.nAmount,
+			strTargetName = tEvent.strTarget,
+			strSpell = tEvent.strInterruptingSpell,
 		})
 
 
-	elseif tEvent.TargetId == playerId then
+	elseif tEvent.nTargetId == playerId then
 		--[[
 		GM.Log:info("Target interrupted")
 
@@ -367,13 +463,6 @@ function Interrupts:UpdatePlayerInterrupt(tEvent)
 
 	player.lastAction = tEvent.nTime
 
-	--[[
-	if spell then
-		self:TallySpellAmount(tEvent, spell)	-- only used for castCount
-		self.bDirty = true
-	end
-	--]]
-
 end
 
 
@@ -389,16 +478,16 @@ function Interrupts:OnCombatLogInterrupted(tEventArgs)
 	local tEvent = {
 		nAmount = tEventArgs.nAmount or 1,	-- Uhm...?
 		nTime = os.clock(),
-		Caster = tInfo.strCaster,	-- Caster of the interrupting spell
-		CasterId = tInfo.nCasterId,
-		CasterType = tInfo.strCasterType,
-		Target = tInfo.strTarget, -- Target of the interrupting spell
-		CasterId = tInfo.nCasterId,
-		TargetType = tInfo.strTargetType,
+		strCaster = tInfo.strCaster,	-- Caster of the interrupting spell
+		nCasterId = tInfo.nCasterId,
+		strCasterType = tInfo.strCasterType,
+		strTarget = tInfo.strTarget, -- Target of the interrupting spell
+		nTargetId = tInfo.nTargetId,
+		strTargetType = tInfo.strTargetType,
 		--CasterClassId = tInfo.nCasterClassId,
 		--TargetClassId = tInfo.nTargetClassId,
 
-		Deflect = false,
+		bDeflect = false,
 		CastResult = tEventArgs.eCastResult,
 		Result = tEventArgs.eCombatResult,
 
@@ -406,20 +495,56 @@ function Interrupts:OnCombatLogInterrupted(tEventArgs)
 		bCaster = (tInfo.strCasterType ~= "NonPlayer"),
 
 		-- Spell that was casting and got interrupted
-		strInterruptedSpellName = tInfo.strSpellName,
+		strInterruptedSpell = tInfo.strSpellName,
 
 		-- Spell that interrupted the casting spell
 		strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName(),
 	}
 
+	if tEventArgs.unitCaster:IsACharacter() or
+			(tEventArgs.unitCaster:GetUnitOwner() and tEventArgs.unitCaster:GetUnitOwner():IsACharacter()) then
+		tEvent.PlayerName = tEvent.strCaster
+		self:UpdatePlayerInterrupt(tEvent)
+		--self:UpdatePlayerSpell(tEvent)
+	else
+		--tEvent.PlayerName = tEvent.Target
+		--gLog:info("target = " .. tEvent.PlayerName)
 
-	self:UpdatePlayerInterrupt(tEvent)
+	end
 
 end
 
 
-
+--[[
+- tEventArgs {
+	unitCaster
+	unitTarget
+	bRemoved
+	bHideFloater
+	eState
+	eResult - CombatFloater.CodeEnumCCStateApplyRulesResult.Target_InterruptArmorReduced
+	nInterruptArmorHit
+	splCallingSpell
+	strState
+- }
+ ]]
 function Interrupts:OnCombatLogCCState(tEventArgs)
+
+	if not tEventArgs.eResult then
+		return
+	end
+
+	-- We're only interested in InterruptArmor
+	if tEventArgs.eResult ~= CombatFloater.CodeEnumCCStateApplyRulesResult.Target_InterruptArmorReduced then
+		return
+	end
+
+	if GM:Debug() then
+		GM.Log:info("CCStateIA")
+		GM.Log:info(tEventArgs)
+		GM:Rover("CCStateIA", tEventArgs)
+	end
+
 	--[[
 		if not self.unitPlayer then
 		self.unitPlayer = GameLib.GetControlledUnit()
@@ -465,13 +590,12 @@ function Interrupts:OnCombatLogCCState(tEventArgs)
 		strResult = String_GetWeaselString(Apollo.GetString("CombatLog_InterruptArmorLeft"), strResult, strAmount)
 	end
 
-	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", self:HelperPickColor(tEventArgs), strResult))
 	--]]
 end
 
 
 function Interrupts:OnCombatLogCCStateBreak(tEventArgs)
-	if GM.bDebug then
+	if GM:Debug() then
 		GM.Log:info("OnCombatLogCCStateBreak()")
 		GM.Log:info(tEventArgs)
 	end
@@ -490,50 +614,43 @@ end
 ]]
 function Interrupts:OnCombatLogModifyInterruptArmor(tEventArgs)
 
+	if GM:Debug() then
+		GM.Log:info("OnCombatLogModifyInterruptArmor")
+		GM.Log:info(tEventArgs)
+		GM:Rover("ModifyIA", tEventArgs)
+	end
+
 	local tInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
 
-	--[[
 	local tEvent = {
 		nAmount = tEventArgs.nAmount,	-- Uhm...?
 		nTime = os.clock(),
-		Caster = tInfo.strCaster,	-- Caster of the interrupting spell
-		CasterId = tInfo.nCasterId,
-		CasterType = tInfo.strCasterType,
-		Target = tInfo.strTarget, -- Target of the interrupting spell
-		TargetId = tInfo.nTargetId,
-		TargetType = tInfo.strTargetType,
-		--CasterClassId = tInfo.nCasterClassId,
-		--TargetClassId = tInfo.nTargetClassId,
+		strCaster = tInfo.strCaster,	-- Caster of the interrupting spell
+		nCasterId = tInfo.nCasterId,
+		strCasterType = tInfo.strCasterType,
+		strTarget = tInfo.strTarget,	-- Target of the interrupting spell
+		nTargetId = tInfo.nTargetId,
+		strTargetType = tInfo.strTargetType,
+		eCastResult = tEventArgs.eCastResult,
+		eCombatResult = tEventArgs.eCombatResult,
 
 		Deflect = false,
 
 		-- Spell that was casting and got interrupted
-		strInterruptedSpellName = tInfo.strSpellName,
+		strInterruptedSpell = tInfo.strSpellName,
 
 		-- Spell that interrupted the casting spell
 		strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName(),
 	}
-	--]]
 
-	tInfo.nTime = os.clock()
-	tInfo.eCastResult = tEventArgs.eCastResult
-	tInfo.eCombatResult = tEventArgs.eCombatResult
 
-	-- if bCaster then player class is caster class, otherwise its the target class
-	--tInfo.bCaster = (tInfo.strCasterType ~= "NonPlayer")
+	if tEventArgs.unitCaster:IsACharacter() or
+		(tEventArgs.unitCaster:GetUnitOwner() and tEventArgs.unitCaster:GetUnitOwner():IsACharacter()) then
 
-	-- Spell that interrupted the casting spell
-	tInfo.strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName()
-
-	self:UpdatePlayerInterrupt(tInfo)
-
-	--[[
-	if tEventArgs.unitCaster:IsThePlayer() or tEventArgs.unitCaster:GetType() ~= "NonPlayer" then
-
-		local nVulnerabilityTime = unit:GetCCStateTimeRemaining(Unit.CodeEnumCCState.Vulnerability)
-
+		tEvent.PlayerName = tEvent.strCaster
+		self:UpdatePlayerInterrupt(tEvent)
 	end
-	--]]
+
 
 	--[[
 	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
@@ -545,23 +662,35 @@ function Interrupts:OnCombatLogModifyInterruptArmor(tEventArgs)
 	if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
 		strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), strResult)
 	end
-	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", tCastInfo.strColor, strResult))
 	--]]
 end
 
 
-function Interrupts:OnUnitCreated(unit)
+function Interrupts:OnUnitEnteredCombat(unit, bCombat)
 
-	if GM:GetLog().start > 0 then
+	--GM.Log:info("UnitEnteredCombat: " .. unit:GetName())
 
+	if unit and bCombat then
 		local nUnitId = unit:GetId()
 
-		--[[
-		if self.uPlayerUnit == nil then
-			self.tUnitsBacklog[nUnitId] = unit
+		if not kTrackUnitType[unit:GetType()] then
 			return
 		end
-		--]]
+
+		if self.tTrackedUnits[nUnitId] then
+			return
+		end
+
+		self:TrackUnit(unit)
+	end
+end
+
+function Interrupts:OnTargetUnitChanged(unit)
+
+	if unit then
+		--GM.Log:info("TargetUnitChanged: " .. unit:GetName())
+
+		local nUnitId = unit:GetId()
 
 		if not kTrackUnitType[unit:GetType()] then
 			return
@@ -576,25 +705,33 @@ function Interrupts:OnUnitCreated(unit)
 end
 
 
+function Interrupts:OnUnitCreated(unit)
+
+	local nUnitId = unit:GetId()
+
+	if not kTrackUnitType[unit:GetType()] then
+		return
+	end
+
+	if self.tTrackedUnits[nUnitId] then
+		return
+	end
+
+	self:TrackUnit(unit)
+
+end
+
+
 function Interrupts:OnUnitDestroyed(unit)
 
-	if GM:GetLog().start > 0 then
+	local nUnitId = unit:GetId()
 
-		local nUnitId = unit:GetId()
-
-		--[[
-		if self.uPlayerUnit == nil then
-			self.tUnitsBacklog[nUnitId] = nil
-			return
-		end
-		--]]
-
-		if not self.tTrackedUnits[nUnitId] then
-			return
-		end
-
-		self:UntrackUnit(nUnitId)
+	if not self.tTrackedUnits[nUnitId] then
+		return
 	end
+
+	self:UntrackUnit(nUnitId)
+
 end
 
 
@@ -603,23 +740,27 @@ function Interrupts:TrackUnit(unit)
 		unit = unit,
 		state = Interrupts.EnumState.Unknown,
 	}
+
 end
 
 
 function Interrupts:UntrackUnit(nUnitId)
+
 	self.tTrackedUnits[nUnitId] = nil
 end
 
 
 --[[
-- This builds entries in the mob vulnerable table
+- This builds entries in the mob casts table
 - mob#Id {
--	vulnerable {
+-	casts {
 -		[1] {
 -			-- Is nLength important if we log start and stop times?
--			nStart	- Time MoO started
--			nStop	- Time MoO stopped
--			nLength	- Time remaining on the MoO when it started
+-			nStart	- Time cast started
+-			nStop	- Time cast stopped
+-			nLength	- Time remaining on the cast when it started
+-			nArmorValue - IA of the cast
+-			strSpell - Spell Name
 -			}
 -		[2]	....
 -	}
@@ -627,37 +768,52 @@ end
 ]]
 function Interrupts:OnFrame()
 
+	if not GM.bGroupInCombat then return end
+
 	local tLogSegment = GM:GetLog()
 	local timeNow = os.clock()
 
 	for nUnitId, tUnitInfo in pairs(self.tTrackedUnits) do
 
-		local bIsCasting = tUnitInfo.unit:ShouldShowCastBar()
+		local bIsCasting = (tUnitInfo.unit:IsCasting() or tUnitInfo.unit:ShouldShowCastBar())
 
-		-- Not currently vulnerable, and there's time remaining on a MoO
-		if tUnitInfo.state ~= Interrupts.EnumState.Casting  then
+		--[[
+		if bIsCasting then
+			GM.Log:info(string.format("%s casting state %d", tUnitInfo.unit:GetName(), tUnitInfo.state))
+			GM:Rover("Casting:"..tUnitInfo.unit:GetName(), tUnitInfo)
+		end
+		--]]
+
+		-- Not currently casting, and there's time remaining on a cast
+		if bIsCasting and tUnitInfo.state == Interrupts.EnumState.Unknown then
 
 			-- Unit just started casting
 			tUnitInfo.state = Interrupts.EnumState.Casting
 
-			-- Create moo start entry
+			GM.Log:info(string.format("%s cast start %s", tUnitInfo.unit:GetName(), tUnitInfo.unit:GetCastName()))
+
+			-- Create cast start entry
 			local tCast = {
-				strSpell = tUhitInfo.unit:GetCastName(),
+				strSpell = tUnitInfo.unit:GetCastName(),
 				nStart = timeNow,	--Start time
 				nLength = tUnitInfo.unit:GetCastDuration(),	-- Total length of the cast
+				nArmorValue = tUnitInfo.unit:GetInterruptArmorValue()
 			}
 
 			tUnitInfo.tCast = tCast
 
+			GM:Rover("Cast", tUnitInfo)
+
 			-- Find mob in log
-			local tMob = GM:GetMob(tLogSegment, nUnitId, tCast.unit)
+			local tMob = GM:GetMob(tLogSegment, nUnitId, tUnitInfo.unit)
 
 			tMob.casts = tMob.casts or {}
 
 			table.insert(tMob.casts, tCast)
 
-		-- Unit was vulnerable
-		elseif tUnitInfo.state == Interrupts.EnumState.Vulnerable then
+
+		-- Unit was casting
+		elseif tUnitInfo.state == Interrupts.EnumState.Casting then
 
 			-- But not anymore
 			if not bIsCasting then
@@ -667,7 +823,7 @@ function Interrupts:OnFrame()
 					GM.Log:error("Cast ended without starting")
 				else
 
-					local tMob = GM:GetMob(tLogSegment, nUnitId)
+					local tMob = GM:FindMob(tLogSegment, nUnitId)
 
 					-- Current cast should be the last entry in this mobs table
 					if not tMob or not tMob.casts then

@@ -6,40 +6,218 @@
 --
 
 local GM = Apollo.GetAddon("GalaxyMeter")
-local MobData = {
-	eTypeDamageOrHealing = {
-		DamageInOut = 0,
-		DamageIn = 1,
-		DamageOut = 2,
-		HealingInout = 3,
-		HealingIn = 4,
-		HealingOut = 5,
-	}
-}
+local MobData = {}
 
-MobData.__index = MobData
 
-function MobData.new()
-	local self = setmetatable({}, MobData)
+function MobData:new(o)
+	o = o or {}
+	setmetatable(o, self)
+	self.__index = self
 
-	return self
+	return o
 end
 
 
 function MobData:Init()
 
 	Apollo.RegisterEventHandler("CombatLogDamage", 	"OnCombatLogDamage", self)
+	--Apollo.RegisterEventHandler("CombatLogDeflect",	"OnCombatLogDeflect", self)
+	--Apollo.RegisterEventHandler("CombatLogHeal", 	"OnCombatLogHeal", self)
 
+
+	GM:AddMenu("Mob Damage Taken By Ability", {
+		name = "Mob Damage Taken",
+		pattern = "Mob Damage %s",
+		type = "damageTaken",
+		segType = "mobs",
+		display = GM.GetOverallList,
+		report = GM.ReportGenericList,
+		prev = GM.MenuPrevious,
+		next = function(...)
+			self:MenuActorSelection(...)	-- Select specific mob
+		end,
+		sort = function(a,b) return a.t > b.t end,
+		format = function(...)
+			return GM:FormatAmountTime(...)
+		end
+	})
+
+	GM:AddMenu("Mob Damage Done By Ability", {
+		name = "Mob Damage Done",
+		pattern = "Mob Damage %s",
+		type = "damageDone",
+		segType = "mobs",
+		display = GM.GetOverallList,
+		report = GM.ReportGenericList,
+		prev = GM.MenuPrevious,
+		next = function(...)
+			self:MenuActorSelection(...)	-- Select specific mob
+		end,
+		sort = function(a,b) return a.t > b.t end,
+		format = function(...)
+			return GM:FormatAmountTime(...)
+		end
+	})
+
+	self.tModeFromSubType = {
+		["damageTaken"] = {
+			name = "%s's Damage Taken",
+			pattern = "%s's Damage Taken from %s",
+			display = self.GetActorList,
+			report = GM.ReportGenericList,
+			type = "damageIn",
+			segType = "mobs",
+			prev = GM.MenuPrevious,
+			--next = self.MenuPlayerSpell,
+			sort = function(a,b) return a.t > b.t end,
+			format = function(...)
+				return GM:FormatAmountTime(...)
+			end
+		},
+		["damageDone"] = {
+			name = "%s's Damage Done",
+			pattern = "%s's Damage Done by %s",
+			display = self.GetActorList,
+			report = GM.ReportGenericList,
+			type = "damageOut",
+			segType = "mobs",
+			prev = GM.MenuPrevious,
+			--next = self.MenuPlayerSpell,
+			sort = function(a,b) return a.t > b.t end,
+			format = function(...)
+				return GM:FormatAmountTime(...)
+			end
+		}
+	}
 
 end
 
 
-function MobData:IsMobOrMobPet(unit)
-	if not  unit then return false end
+--[[
+- @param m GalaxyMeter, this was passed in by GetOverallList
+ ]]
+function MobData:MenuActorSelection(m, nActorId)
 
-	if not unit:IsACharacter(unit) and (unit:GetUnitOwner() and not unit:GetUnitOwner():IsACharacter()) then
-		return true
+	--GM:Rover("MobDataActorSelection", {m=m, self=self, nActorId=nActorId})
+
+	local actor = GM:FindMob(GM:GetLogDisplay(), nActorId)
+
+	if not actor then
+		GM.Log:info("cant find actor " .. nActorId .. " in MenuActorSelection")
+		return
 	end
+
+	local mode = GM:GetCurrentMode()
+
+	GM:LogActorId(nActorId)
+	GM:LogType(mode.type)
+	GM:LogActorName(actor.strName)
+
+	GM.Log:info(string.format("MenuActorSelection: %s -> %s", actor.strName, mode.type))
+
+	GM:LogModeType(GM.tListFromSubType[mode.type])	-- Save this because as we delve deeper into menus the type isn't necessarily set
+
+	local newMode = self.tModeFromSubType[mode.type]
+
+	GM:PushMode(newMode)
+
+	GM:Dirty(true)
+end
+
+
+-- Get player listing for this segment
+-- @return Tables containing player damage done
+--    1) Ordered list of individual spells
+--    2) Total
+function MobData:GetActorList()
+	local tList = {}
+
+	-- These should have already been set
+	local nActorId = GM:LogActorId()
+	local strName = GM:LogActorName()
+	local mode = GM:GetCurrentMode()
+	local tLogSegment = GM:GetLogDisplay()
+
+	--local tActor = GM:LogActor()
+
+	local tActorLog = tLogSegment[mode.segType][nActorId]
+
+	-- convert to damageDone/damageTaken
+	local dmgTypeTotal = GM.tSubTypeFromList[mode.type]
+
+	local nDmgTotal = tActorLog[dmgTypeTotal]
+
+	local nTime = GM:GetLogDisplayTimer()
+
+	GM:Rover("GetActorList", {dmgTypeTotal=dmgTypeTotal, nDmgTotal=nDmgTotal, tActorLog=tActorLog})
+
+	local tTotal = {
+		n = string.format("%s's %s", strName, mode.type),
+		t = nDmgTotal, -- "Damage to XXX"
+		c = GM.kDamageStrToColor.Self,
+		tStr = mode.format(nDmgTotal, nTime),
+		progress = 1,
+		click = function(m, btn)
+			if btn == 0 and mode.nextTotal then
+				mode.nextTotal(self, tActorLog)
+			elseif btn == 1 and mode.prev then
+				mode.prev(self)
+			end
+		end
+	}
+
+	local nMax = 0
+	for k, v in pairs(tActorLog[mode.type]) do
+		if v.total > nMax then nMax = v.total end
+	end
+
+	for k, v in pairs(tActorLog[mode.type]) do
+
+		table.insert(tList, {
+			n = k,
+			t = v.total,
+			c = GM.kDamageTypeToColor[v.dmgType],
+			tStr = mode.format(v.total, nTime),
+			progress = v.total / nMax,
+			click = function(m, btn)
+				if btn == 0 and mode.next then
+					mode.next(self, v, tActorLog)
+				elseif btn == 1 then
+					mode.prev(self)
+				end
+			end
+		})
+	end
+
+	local strDisplayText = string.format("%s's %s", strName, mode.type)
+
+	-- "%s's Damage to %s"
+	local strModePatternTemp = string.format(mode.pattern, strName, tLogSegment.name)
+
+	-- Move to Report
+	local strTotalText = string.format("%s - %d (%.2f) - %s",
+		--"%s's blah on %s"
+		strModePatternTemp,
+		nDmgTotal,
+		nDmgTotal / tLogSegment.combat_length,
+		self:SecondsToString(tLogSegment.combat_length))
+
+	return tList, tTotal, strDisplayText, strTotalText
+end
+
+
+function MobData:IsMobOrMobPet(unit)
+	if not unit then return false end
+
+	if (unit:GetUnitOwner() and not unit:GetUnitOwner():IsACharacter()) then
+
+	end
+
+	if unit:IsACharacter(unit) then
+		return false
+	end
+
+
 
 	return false
 end
@@ -47,10 +225,8 @@ end
 
 function MobData:GetDamageEventType(unitCaster, unitTarget)
 
-	self:Rover("GetDmgType", {caster = unitCaster, target = unitTarget})
-
-	local bSourceIsMob = self:IsMobOrMobPet(unitCaster)
-	local bTargetIsMob = self:IsMobOrMobPet(unitTarget)
+	--local bSourceIsMob = self:IsMobOrMobPet(unitCaster)
+	--local bTargetIsMob = self:IsMobOrMobPet(unitTarget)
 	local bSourceIsCharacter = GM:IsPlayerOrPlayerPet(unitCaster)
 	local bTargetIsCharacter = GM:IsPlayerOrPlayerPet(unitTarget)
 
@@ -60,14 +236,24 @@ function MobData:GetDamageEventType(unitCaster, unitTarget)
 	 source mob or pet		&& target mob or pet	=> mob dmg in/out
 	 --]]
 
-	if bSourceIsMob and bTargetIsCharacter then
-		return MobData.eTypeDamageOrHealing.DamageOut
+	--[[
+	GM:Rover("MobGetDmgType", {	caster = unitCaster,
+								target = unitTarget,
+								bSourceIsMob = not bSourceIsCharacter,
+								bTargetIsMob = not bTargetIsCharacter,
+								bSourceIsCharacter = bSourceIsCharacter,
+								bTargetIsCharacter = bTargetIsCharacter,
+							})
+	--]]
 
-	elseif bSourceIsCharacter and bTargetIsMob then
-		return MobData.eTypeDamageOrHealing.DamageIn
+	if not bSourceIsCharacter and bTargetIsCharacter then
+		return GM.eTypeDamageOrHealing.DamageOut
 
-	elseif bSourceIsMob and bTargetIsMob then
-		return MobData.eTypeDamageOrHealing.DamageInOut
+	elseif bSourceIsCharacter and not bTargetIsCharacter then
+		return GM.eTypeDamageOrHealing.DamageIn
+
+	elseif not bSourceIsCharacter and not bTargetIsCharacter then
+		return GM.eTypeDamageOrHealing.DamageInOut
 
 	else
 		-- Ignore
@@ -80,6 +266,64 @@ end
 function MobData:OnCombatLogDamage(tEventArgs)
 
 	if not tEventArgs.unitCaster or not tEventArgs.unitTarget then
+		GM.Log:info("discarding mob dmg no unit or caster")
+		return
+	end
+
+	local bCasterIsPlayer = GM:IsPlayerOrPlayerPet(tEventArgs.unitCaster)
+
+	-- Not interested in character to character data
+	if bCasterIsPlayer and GM:IsPlayerOrPlayerPet(tEventArgs.unitTarget) then
+		GM.Log:info("discarding mob dmg player dmg only")
+		return
+	end
+
+	local tEvent = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	tEvent.bDeflect = false
+	--tEvent.unitCaster = tEventArgs.unitCaster
+	--tEvent.unitTarget = tEventArgs.unitTarget
+	tEvent.nDamageRaw = tEventArgs.nRawDamage
+	tEvent.nShield = tEventArgs.nShield
+	tEvent.nAbsorb = tEventArgs.nAbsorption
+	tEvent.bPeriodic = tEventArgs.bPeriodic
+	tEvent.bVulnerable = tEventArgs.bTargetVulnerable
+	tEvent.nOverkill = tEventArgs.nOverkill
+	tEvent.eResult = tEventArgs.eCombatResult
+	tEvent.eDamageType = tEventArgs.eDamageType
+	tEvent.eEffectType = tEventArgs.eEffectType
+	tEvent.nDamage = tEventArgs.nDamageAmount
+
+	tEvent.nTypeId = self:GetDamageEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+
+	GM:Rover("MobEvent", tEvent)
+
+	if tEvent.nTypeId > 0 and tEvent.nDamage then
+
+		GM:TryStartSegment(tEvent, tEventArgs.unitTarget)
+
+		local mob
+
+		if not bCasterIsPlayer then
+			mob = GM:GetMob(GM:GetLog(), tEvent.nCasterId, tEventArgs.unitCaster)
+		else
+			mob = GM:GetMob(GM:GetLog(), tEvent.nTargetId, tEventArgs.unitTarget)
+		end
+
+		GM:Rover("mob", {mob = mob})
+
+		GM:UpdateSpell(tEvent, mob)
+
+	else
+		GM.Log:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
+
+	end
+
+end
+
+
+function MobData:OnCombatLogHeal(tEventArgs)
+	if not tEventArgs.unitCaster or not tEventArgs.unitTarget then
 		return
 	end
 
@@ -90,163 +334,7 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 	local tInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
 
-	local tEvent = {
-		unitCaster = tEventArgs.unitCaster,
-		strCaster = tInfo.strCaster,
-		strCasterType = tInfo.strCasterType,
-		unitTarget = tEventArgs.unitTarget,
-		strTarget = tInfo.strTarget,
-		strTargetType = tInfo.strTargetType,
-		strSpellName = tInfo.strSpellName,
-		nCasterClassId = tInfo.nCasterClassId,
-		nTargetClassId = tInfo.nTargetClassId,
-
-		bDeflect = false,
-		nDamageRaw = tEventArgs.nRawDamage,
-		nShield = tEventArgs.nShield,
-		nAbsorb = tEventArgs.nAbsorption,
-		bPeriodic = tEventArgs.bPeriodic,
-		bVulnerable = tEventArgs.bTargetVulnerable,
-		nOverkill = tEventArgs.nOverkill,
-		eResult = tEventArgs.eCombatResult,
-		eDamageType = tEventArgs.eDamageType,
-		eEffectType = tEventArgs.eEffectType,
-	}
-
-	tEvent.nTypeId = self:GetDamageEventType(tEvent.unitCaster, tEvent.unitTarget)
-
-	if tEvent.nTypeId and tEvent.nTypeId > 0 and tEvent.nDamage then
-
-		if self:IsMobOrMobPet(tEvent.unitCaster) then
-			tEvent.nId = tEvent.nCasterId
-		else
-			tEvent.nId = tEvent.nTargetId
-		end
-
-		self:UpdateMobSpell(tEvent)
-
-	else
-		GM.Log:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
-
-	end
-
 end
 
 
-function MobData:UpdateMobSpell(tEvent)
-	local nCasterId = tEvent.unitCaster:GetId()
-	local strSpellName = tEvent.strSpellName
-	local strCasterType = tEvent.strCasterType
-	local nAmount = tEvent.nDamage
-
-	if not nAmount and not tEvent.bDeflect then
-		GM.Log:error("UpdatePlayerSpell: nAmount is nil, spell: " .. spellName)
-		self:Rover("nil nAmount Spell", tEvent)
-		return
-	end
-
-	local tActiveLog = GM:GetLog().mobs
-
-	-- Finds existing or creates new player entry
-	local mob = self:GetMob(tActiveLog, nCasterId, tEvent.unitCaster)
-
-
-	local spell = nil
-
-	-- Player tally and spell type
-	if tEvent.nTypeId == MobData.eTypeDamageOrHealing.HealingInOut then
-
-		-- Special handling for self healing, we want to count this as both healing done and received
-		-- Maybe add option to enable tracking for this
-
-		local nEffective = nAmount - tEvent.nOverheal
-
-		mob.healingDone = mob.healingDone + nEffective
-		mob.healingTaken = mob.healingTaken + nAmount
-		mob.healed[tEvent.strTarget] = (mob.healed[tEvent.strTarget] or 0) + nEffective
-
-		if tEvent.nOverheal > 0 then
-			mob.overheal = (mob.overheal or 0) + tEvent.nOverheal
-		end
-
-		local spellOut = GM:GetSpell(mob.healingOut, strSpellName)
-		local spellIn = GM:GetSpell(mob.healingIn, strSpellName)
-
-		--self:TallySpellAmount(tEvent, spellOut)
-		--self:TallySpellAmount(tEvent, spellIn)
-
-		GM:Dirty(true)
-
-	elseif tEvent.nTypeId == MobData.eTypeDamageOrHealing.HealingOut then
-
-		local nEffective = nAmount - tEvent.nOverheal
-
-		mob.healingDone = mob.healingDone + nEffective
-		mob.healed[tEvent.strTarget] = (mob.healed[tEvent.strTarget] or 0) + nEffective
-
-		if tEvent.nOverheal > 0 then
-			mob.overheal = (mob.overheal or 0) + tEvent.nOverheal
-		end
-
-		spell = GM:GetSpell(mob.healingOut, strSpellName)
-
-	elseif tEvent.nTypeId == MobData.eTypeDamageOrHealing.HealingIn then
-
-		local nEffective = nAmount - tEvent.nOverheal
-
-		mob.healingTaken = mob.healingTaken + nAmount
-		mob.healedBy[tEvent.strTarget] = (mob.healedBy[tEvent.strTarget] or 0) + nEffective
-
-		spell = GM:GetSpell(mob.healingIn, strSpellName)
-
-	elseif tEvent.nTypeId == MobData.eTypeDamageOrHealing.DamageInOut then
-
-		-- Another special case where the spell we cast also damaged ourself?
-		mob.damageDone = mob.damageDone + nAmount
-		mob.damageTaken = mob.damageTaken + nAmount
-		mob.damaged[tEvent.strTarget] = (mob.damaged[tEvent.strTarget] or 0) + nAmount
-
-		local spellOut = GM:GetSpell(mob.damageOut, strSpellName)
-		local spellIn = GM:GetSpell(mob.damageIn, strSpellName)
-
-		--self:TallySpellAmount(tEvent, spellOut)
-		--self:TallySpellAmount(tEvent, spellIn)
-
-		GM:Dirty(true)
-
-	elseif tEvent.nTypeId == MobData.eTypeDamageOrHealing.PlayerDamageOut then
-		if not tEvent.bDeflect then
-			mob.damageDone = mob.damageDone + nAmount
-			mob.damaged[tEvent.strTarget] = (mob.damaged[tEvent.strTarget] or 0) + nAmount
-		end
-
-		spell = GM:GetSpell(mob.damageOut, strSpellName)
-
-	elseif tEvent.nTypeId == MobData.eTypeDamageOrHealing.DamageIn then
-		if not tEvent.bDeflect then
-			mob.damageTaken = mob.damageTaken + nAmount
-			mob.damagedBy[tEvent.strTarget] = (mob.damagedBy[tEvent.strTarget] or 0) + nAmount
-		end
-
-		local strMobNameSpell = ("%s: %s"):format(tEvent.strCaster, strSpellName)
-
-		spell = GM:GetSpell(mob.damageIn, strMobNameSpell)
-
-	else
-		self:Rover("UpdateMobSpell Error", tEvent)
-		GM.Log:error("Unknown type in UpdateMobSpell!")
-		GM.Log:error(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
-			strSpellName, tEvent.strCaster, tEvent.strTarget, nAmount or 0))
-
-		-- spell should be null here, safe to continue on...
-	end
-
-	if spell then
-		mob.lastAction = os.clock()
-		self:TallySpellAmount(tEvent, spell)
-		GM:Dirty(true)
-	end
-
-end
-
-GM.MobData = MobData.new()
+GM.MobData = MobData:new()
