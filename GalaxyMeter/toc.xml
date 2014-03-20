@@ -4,6 +4,7 @@
     <Script Name="inspect.lua"/>
     <Script Name="GeminiLogging.lua"/>
     <Script Name="GalaxyMeter.lua"/>
+    <Script Name="Deaths.lua"/>
     <Script Name="Interrupts.lua"/>
     <Script Name="MobData.lua"/>
     <Form Name="GalaxyMeter.xml"/>
