@@ -6,7 +6,14 @@
 --
 
 local GM = Apollo.GetAddon("GalaxyMeter")
-local MobData = {}
+local MobData = {
+	tTotalFromListType = {
+		["damaged"]		= "damageDone",
+		["damagedBy"]	= "damageTaken",
+		["healed"]		= "healingDone",
+		["healedBy"]	= "healingDaken",
+	}
+}
 
 
 function MobData:new(o)
@@ -25,7 +32,24 @@ function MobData:Init()
 	--Apollo.RegisterEventHandler("CombatLogHeal", 	"OnCombatLogHeal", self)
 
 
-	GM:AddMenu("Mob Damage Taken By Ability", {
+	GM:AddMenu("Mob Damage Done: Spell", {
+		name = "Mob Damage Done",
+		pattern = "Mob Damage %s",
+		type = "damageDone",
+		segType = "mobs",
+		display = GM.GetOverallList,
+		report = GM.ReportGenericList,
+		prev = GM.MenuPrevious,
+		next = function(...)
+			self:MenuActorSelection(...)	-- Select specific mob
+		end,
+		sort = function(a,b) return a.t > b.t end,
+		format = function(...)
+			return GM:FormatAmountTime(...)
+		end
+	})
+
+	GM:AddMenu("Mob Damage Taken: Spell", {
 		name = "Mob Damage Taken",
 		pattern = "Mob Damage %s",
 		type = "damageTaken",
@@ -42,17 +66,30 @@ function MobData:Init()
 		end
 	})
 
-	GM:AddMenu("Mob Damage Done By Ability", {
+	GM:AddMenu("Mob Damage Done: Unit", {
 		name = "Mob Damage Done",
 		pattern = "Mob Damage %s",
-		type = "damageDone",
+		type = "damaged",
 		segType = "mobs",
-		display = GM.GetOverallList,
+		display = self.GetMobUnitList,
 		report = GM.ReportGenericList,
 		prev = GM.MenuPrevious,
-		next = function(...)
-			self:MenuActorSelection(...)	-- Select specific mob
-		end,
+		next = nil,
+		sort = function(a,b) return a.t > b.t end,
+		format = function(...)
+			return GM:FormatAmountTime(...)
+		end
+	})
+
+	GM:AddMenu("Mob Damage Taken: Unit", {
+		name = "Mob Damage Taken",
+		pattern = "Mob Damage %s",
+		type = "damagedBy",
+		segType = "mobs",
+		display = self.GetMobUnitList,
+		report = GM.ReportGenericList,
+		prev = GM.MenuPrevious,
+		next = nil,
 		sort = function(a,b) return a.t > b.t end,
 		format = function(...)
 			return GM:FormatAmountTime(...)
@@ -90,6 +127,7 @@ function MobData:Init()
 		}
 	}
 
+
 end
 
 
@@ -125,8 +163,8 @@ function MobData:MenuActorSelection(m, nActorId)
 end
 
 
--- Get player listing for this segment
--- @return Tables containing player damage done
+-- Get actor listing for this segment
+-- @return Tables containing actor damage done etc
 --    1) Ordered list of individual spells
 --    2) Total
 function MobData:GetActorList()
@@ -206,6 +244,71 @@ function MobData:GetActorList()
 end
 
 
+-- Returns list of mobs who have been damaged or have done damage
+function MobData:GetMobUnitList()
+
+	local mode = GM:GetCurrentMode()
+	local tLogSegment = GM:GetLogDisplay()
+	local tLogActors = tLogSegment[mode.segType]	--log.mobs
+
+	local nTime = GM:GetLogDisplayTimer()
+
+	local tList = {}
+	local nSum, nMax = 0, 0
+
+	local typeTotal = MobData.tTotalFromListType[mode.type]
+
+	-- Find individual actor sum, total sum, and total max
+	for nActorId, tActor in pairs(tLogActors) do
+
+		if tActor.typeTotal > 0 then	--log.mobs[mobId].damaged[] => typeTotal damageDone
+
+			local nActorSum = 0
+			for k, v in pairs(tActor[mode.type]) do
+				nSum = nSum + v
+				if v > nMax then nMax = v end
+			end
+
+		end
+	end
+
+
+	-- Build list
+	for nActorId, tActor in pairs(tLogActors) do
+
+		-- Check if its been damaged/damageBy'd
+		--if #tActor[mode.type] > 0 then
+		if tActor.typeTotal > 0 then
+
+			--local nActorTotal = tActorTotal[tActor.name]
+			local nActorTotal = tActor.typeTotal
+
+			table.insert(tList, {
+				n = tActor.name,
+				t = nActorTotal,
+				c = GM.ClassToColor[tActor.classId],
+				tStr = mode.format(nActorTotal, nTime),
+				progress = nActorTotal / nMax,
+				click = function(m, btn)
+					if btn == 0 and mode.next then
+						mode.next(GM, tActor)
+					elseif btn == 1 and mode.prev then
+						mode.prev(GM)
+					end
+				end
+			})
+		end
+	end
+
+	local tTotal = {
+		n = "Some Stuff",
+		c = GM.kDamageStrToColor.Self, progress = 1,
+	}
+
+	return tList, tTotal, mode.name, ""
+end
+
+
 function MobData:IsMobOrMobPet(unit)
 	if not unit then return false end
 
@@ -280,6 +383,8 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 	local tEvent = GM:HelperCasterTargetSpell(tEventArgs, true, true)
 
+	if not tEvent then return end
+
 	tEvent.bDeflect = false
 	--tEvent.unitCaster = tEventArgs.unitCaster
 	--tEvent.unitTarget = tEventArgs.unitTarget
@@ -332,7 +437,9 @@ function MobData:OnCombatLogHeal(tEventArgs)
 		return
 	end
 
-	local tInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+	local tEvent = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	if not tEvent then return end
 
 end
 
