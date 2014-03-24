@@ -16,7 +16,7 @@ require "GroupLib"
 -- GalaxyMeter Module Definition
 -----------------------------------------------------------------------------------------------
 local GalaxyMeter = {
-	nVersion = 16,
+	nVersion = 17,
 	eTypeDamageOrHealing = {
 		DamageInOut = 1,
 		DamageIn = 2,
@@ -102,7 +102,7 @@ function GalaxyMeter:OnLoad()
 	local GeminiLogging = Apollo.GetPackage("GeminiLogging-1.1").tPackage
 
 	gLog = GeminiLogging:GetLogger({
-		level = GeminiLogging.ERROR,
+		level = GeminiLogging.INFO,
 		pattern = "[%d] %n [%c:%l] - %m",
 		appender = "GeminiConsole"
 	})
@@ -131,7 +131,9 @@ function GalaxyMeter:OnLoad()
 	Apollo.RegisterEventHandler("ChangeWorld", 						"OnChangeWorld", self)
 
 	-- Self Combat Logging
-	Apollo.RegisterEventHandler("UnitEnteredCombat", 				"OnEnteredCombat", self)
+	--Apollo.RegisterEventHandler("UnitEnteredCombat", 				"OnEnteredCombat", self)
+	Apollo.RegisterEventHandler("UnitCreated",						"OnUnitCreated", self)
+	Apollo.RegisterEventHandler("UnitDestroyed",					"OnUnitDestroyed", self)
 	--Apollo.RegisterEventHandler("SpellCastFailed", 				"OnSpellCastFailed", self)
 	--Apollo.RegisterEventHandler("SpellEffectCast", 				"OnSpellEffectCast", self)
 	--Apollo.RegisterEventHandler("CombatLogString", 				"OnCombatLogString", self)
@@ -448,6 +450,7 @@ function GalaxyMeter:OnLoad()
 
 	self.timerPulse:Start()
 
+	self.bPetAffectingCombat = false
 	self.bNeedNewLog = true
 	self:NewLogSegment()
 
@@ -581,15 +584,43 @@ function GalaxyMeter:OnChangeWorld()
 end
 
 
+function GalaxyMeter:OnUnitCreated(unit)
+
+	if unit and unit:GetUnitOwner() then
+		if unit:GetUnitOwner():IsThePlayer() then
+			self.bPetAffectingCombat = true
+			gLog:info("bPetAffectingCombat true")
+		end
+	end
+
+end
+
+
+function GalaxyMeter:OnUnitDestroyed(unit)
+
+	if unit and unit:GetUnitOwner() and unit:GetUnitOwner():IsThePlayer() then
+		self.bPetAffectingCombat = false
+		gLog:info("bPetAffectingCombat false")
+	end
+
+end
+
 -- @return true if any group members are in combat
 function GalaxyMeter:GroupInCombat()
 
-	if not GameLib.GetPlayerUnit() then return end
+	if not GameLib.GetPlayerUnit() then
+		gLog:info("GroupInCombat: No Player Unit, returning false")
+		return false
+	end
 
-	local bSelfInCombat = GameLib.GetPlayerUnit():IsInCombat()
+	local bSelfInCombat = GameLib.GetPlayerUnit():IsInCombat() or self.bPetAffectingCombat
 
 	local nMemberCount = GroupLib.GetMemberCount()
-	if nMemberCount == 0 then return bSelfInCombat end
+	if nMemberCount == 0 then
+
+		--gLog:info("GroupInCombat: returning  " .. tostring(bSelfInCombat))
+		return bSelfInCombat
+	end
 
 	local bCombat = false
 
@@ -603,6 +634,10 @@ function GalaxyMeter:GroupInCombat()
 	end
 
 	self.bGroupInCombat = bCombat
+
+	if not bCombat then
+		self.bNeedNewLog = true
+	end
 	
 	return bCombat
 end
@@ -709,24 +744,26 @@ function GalaxyMeter:PushLogSegment()
 end
 
 
+
 -----------------------------------------------------------------------------------------------
 -- GalaxyMeter OnEnteredCombat
 -----------------------------------------------------------------------------------------------
 function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 	
 	if unit:GetId() == GameLib.GetPlayerUnit():GetId() then
-	
+
 		-- We weren't in combat before, so start new segment
-		if not self.bInCombat then
+		if not bInCombat and not self.bPetAffectingCombat then
 			-- Hm, we shouldnt set this flag if the spell was a heal...
-			self.bNeedNewLog = true
-            gLog:info("Setting bNeedNewLog = true")
-        end
-	
-		self.bInCombat = bInCombat
-
+			--self.bNeedNewLog = true
+			gLog:info("OnEnteredCombat: self combat false")
+			self.bInCombat = false
+            --gLog:info("Self out of combat: Setting bNeedNewLog = true")
+        else
+			gLog:info("OnEnteredCombat: self combat true")
+			self.bInCombat = true
+		end
 	end
-
 end
 
 

@@ -844,7 +844,7 @@ end
 ]]
 function Interrupts:OnFrame()
 
-	if not GM.bGroupInCombat and not GM.bInCombat then return end
+	if not GM.bGroupInCombat then return end
 
 	local tLogSegment = GM:GetLog()
 	local timeNow = os.clock()
