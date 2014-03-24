@@ -6,7 +6,6 @@
 --
 
 local GM = Apollo.GetAddon("GalaxyMeter")
-local Queue = GM.Queue
 local Deaths = {
 	nLogTimeWindow = 10,
 	tTypeMapping = {
@@ -30,15 +29,20 @@ end
 
 
 function Deaths:Init()
-	Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
-	Apollo.RegisterEventHandler("CombatLogDamage",					"OnCombatLogDamage", self)
+
+
+	Apollo.SetConsoleVariable("cmbtlog.disableDelayDeath", false)
+	Apollo.SetConsoleVariable("cmbtlog.disableDeath", false)
+
+	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
+	Apollo.RegisterEventHandler("GalaxyMeterLogDamage",				"OnGalaxyMeterLogDamage", self)
 	Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
-	Apollo.RegisterEventHandler("CombatLogDeflect",					"OnCombatLogDeflect", self)
-	Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
-	Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
-	Apollo.RegisterEventHandler("CombatLogFallingDamage",			"OnCombatLogFallingDamage", self)
-	Apollo.RegisterEventHandler("CombatLogHeal",					"OnCombatLogHeal", self)
-	Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
+	--Apollo.RegisterEventHandler("CombatLogDeflect",					"OnCombatLogDeflect", self)
+	--Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
+	--Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
+	--Apollo.RegisterEventHandler("CombatLogFallingDamage",			"OnCombatLogFallingDamage", self)
+	Apollo.RegisterEventHandler("GalaxyMetertLogHeal",					"OnGalaxyMeterLogHeal", self)
+	--Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
 
 
 	GM:AddMenu("Player Deaths", {
@@ -49,13 +53,47 @@ function Deaths:Init()
 		segType = "players",
 		type = "deaths",
 		prev = GM.MenuPrevious,
-		next = nil,
+		next = self.MenuPlayerDeathSelection,
 		sort = function(a,b) return a.t > b.t end,
 		format = function(...)
 			return GM:FormatAmount(...)
 		end
 	})
 
+	GM.Log:info("Deaths:Init()")
+	GM:Dirty(true)
+
+	--local bDead = tMemberInfo.nHealth == 0 and tMemberInfo.nHealthMax ~= 0
+
+end
+
+
+--[[
+- @param m GalaxyMeter, this was passed in by GetOverallList
+--]]
+function Deaths:MenuPlayerDeathSelection(m, tActor)
+
+	if not tActor then
+		GM.Log:info("cant find actor " .. tActor.strName .. " in MenuActorSelection")
+		return
+	end
+
+	local mode = GM:GetCurrentMode()
+
+	--GM:LogType(mode.type)
+	--GM:LogActorName(tActor.strName)
+
+	GM.Log:info(string.format("MenuPlayerDeathSelection: %s -> %s", tActor.strName, mode.type))
+
+	--GM:LogModeType(GM.tListFromSubType[mode.type])
+
+	-- Open window
+
+	--local newMode = self.tModeFromSubType[mode.type]
+
+	--GM:PushMode(newMode)
+
+	--GM:Dirty(true)
 end
 
 
@@ -144,7 +182,7 @@ function Deaths:PrintPlayerLog(strPlayerName)
 
 	local tPlayerLog = GM:GetPlayer(GM:GetLogDisplay().players, {PlayerName=strPlayerName})
 
-	tPlayerLog.log = tPlayerLog.log or Queue.new()
+	tPlayerLog.log = tPlayerLog.log or GM.Queue.new()
 
 	local log = tPlayerLog.log
 
@@ -159,48 +197,47 @@ end
 
 
 function Deaths:AddLogEntryPlayer(tLogEntry, tPlayer)
-	tPlayer.log = tPlayer.log or Queue.new()
+
+	tPlayer.log = tPlayer.log or GM.Queue.new()
+
+	--GM:Rover("tPlayer", {entry=tLogEntry, player=tPlayer, log=tPlayer.log, q=GM.Queue})
 
 	local log = tPlayer.log
 
 	-- Append latest
-	log:PushRight(tLogEntry)
+	GM.Queue.PushRight(tPlayer.log, tLogEntry)
 
 	-- Remove non-recent events
 	local nTimeThreshold = tLogEntry.nClockTime - Deaths.nLogTimeWindow
 
-	while log[log.first].nClockTime < nTimeThreshold do
-		log:PopLeft()
+	while tPlayer.log[tPlayer.log.first].nClockTime < nTimeThreshold do
+		GM.Queue.PopLeft(tPlayer.log)
 	end
 end
 
 
 function Deaths:AddLogEntry(tEvent)
 
-	local nTypeId, bCasterIsPlayer, bTargetIsPlayer = GM:GetDamageEventType(tEvent.unitCaster, tEvent.unitTarget)
-
-	local tActorLog
-
-	if nTypeId == 0 then
-		GM.Log:error("AddLogEntry: Something went wrong!  Invalid type Id")
-		return
-	end
+	--GM.Log:info(tEvent)
 
 	-- Create log entry
 	local tm = GameLib.GetLocalTime()
 	local tNewLogEntry = {
 		nClockTime = os.clock(),
 		strTime = ("%d:%02d:%02d"):format(tm.nHour, tm.nMinute, tm.nSecond),
+		strMessage = tEvent.strResult,
 	}
 
-	if bCasterIsPlayer then
-		tActorLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strCaster})
+	--GM.Log:info(tNewLogEntry)
+
+	if tEvent.bCasterIsPlayer then
+		local tActorLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strCaster})
 
 		self:AddLogEntryPlayer(tNewLogEntry, tActorLog)
 	end
 
-	if bTargetIsPlayer and tEvent.unitCaster:GetId() ~= tEvent.unitTarget:GetId() then
-		tActorLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strTarget})
+	if tEvent.bTargetIsPlayer and tEvent.unitCaster:GetId() ~= tEvent.unitTarget:GetId() then
+		local tActorLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strTarget})
 
 		self:AddLogEntryPlayer(tNewLogEntry, tActorLog)
 	end
@@ -239,26 +276,21 @@ function Deaths:OnCombatLogDelayDeath(tEventArgs)
 end
 
 
-function Deaths:OnCombatLogDeath(tEventArgs)
-	if GM:Debug() then
-		GM.Log:info("OnCombatLogDeath()")
-		GM.Log:info(tEventArgs)
-		GM:Rover("CLDeath", tEventArgs)
-	end
-
-	if not tEventArgs.unitCaster then return end
+function Deaths:AddPlayerDeath(tEventArgs)
 
 	if tEventArgs.unitCaster:IsACharacter() then
 
 		local strName = tEventArgs.unitCaster:GetName()
 
-		local tPlayerLog = GM:GetPlayer(GM:GetCurrentLog().players, {PlayerName=strName})
+		local tPlayerLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=strName})
 
 		if tPlayerLog.log then
 
 			tPlayerLog.deaths = tPlayerLog.deaths or {}
 
-			local tCopy = Queue.copy(tPlayerLog.log)
+			GM.Log:info(tPlayerLog.strName .. " death")
+
+			local tCopy = GM.Queue.copy(tPlayerLog.log)
 
 			table.insert(tPlayerLog.deaths, {
 				time = os.clock(),
@@ -272,72 +304,88 @@ function Deaths:OnCombatLogDeath(tEventArgs)
 end
 
 
-function Deaths:OnCombatLogDamage(tEventArgs)
-	-- Example Combat Log Message: 17:18: Alvin uses Mind Stab on Space Pirate for 250 Magic damage (Critical).
-	local tTextInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
-
-	if not tTextInfo then return end
-
-	-- System treats environment damage as coming from the player
-	local bEnvironmentDmg = tTextInfo.strCaster == tTextInfo.strTarget
-
-	local strDamage = tEventArgs.nDamageAmount
-
-	if tEventArgs.unitTarget and tEventArgs.unitTarget:IsMounted() then
-		tTextInfo.strTarget = String_GetWeaselString(Apollo.GetString("CombatLog_MountedTarget"), tTextInfo.strTarget)
+-- This seems to only be returning the player
+function Deaths:OnCombatLogDeath(tEventArgs)
+	if GM:Debug() then
+		GM.Log:info("OnCombatLogDeath()")
+		GM.Log:info(tEventArgs)
+		GM:Rover("CLDeath", tEventArgs)
 	end
 
-	tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tTextInfo.strCaster, tTextInfo.strSpellName, tTextInfo.strTarget)
+	if not tEventArgs.unitCaster then return end
+
+	self:AddPlayerDeath(tEventArgs)
+
+
+end
+
+
+function Deaths:OnGalaxyMeterLogDamage(tEvent)
+	-- Example Combat Log Message: 17:18: Alvin uses Mind Stab on Space Pirate for 250 Magic damage (Critical).
+	--local tTextInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+
+	--if not tTextInfo then return end
+
+	-- System treats environment damage as coming from the player
+	local bEnvironmentDmg = tEvent.strCaster == tEvent.strTarget
+
+	local strDamage = tostring(tEvent.nDamage)
+
+	if tEvent.unitTarget and tEvent.unitTarget:IsMounted() then
+		tEvent.strTarget = String_GetWeaselString(Apollo.GetString("CombatLog_MountedTarget"), tEvent.strTarget)
+	end
+
+	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 
 	if bEnvironmentDmg then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_EnvironmentDmg"), tTextInfo.strSpellName, tTextInfo.strTarget)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_EnvironmentDmg"), tEvent.strSpellName, tEvent.strTarget)
 	end
 
 	local strDamageType = Apollo.GetString("CombatLog_UnknownDamageType")
-	if tEventArgs.eDamageType then
-		strDamageType = Deaths.tTypeMapping[tEventArgs.eDamageType]
+	if tEvent.eDamageType then
+		strDamageType = Deaths.tTypeMapping[tEvent.eDamageType]
 	end
 
 	local strDamageMethod = nil
-	if tEventArgs.bPeriodic then
+	if tEvent.bPeriodic then
 		strDamageMethod = Apollo.GetString("CombatLog_PeriodicDamage")
-	elseif tEventArgs.eEffectType == Spell.CodeEnumSpellEffectType.DistanceDependentDamage then
+	elseif tEvent.eEffectType == Spell.CodeEnumSpellEffectType.DistanceDependentDamage then
 		strDamageMethod = Apollo.GetString("CombatLog_DistanceDependent")
-	elseif tEventArgs.eEffectType == Spell.CodeEnumSpellEffectType.DistributedDamage then
+	elseif tEvent.eEffectType == Spell.CodeEnumSpellEffectType.DistributedDamage then
 		strDamageMethod = Apollo.GetString("CombatLog_DistributedDamage")
 	else
 		strDamageMethod = Apollo.GetString("CombatLog_BaseDamage")
 	end
 
 	if strDamageMethod then
-		tTextInfo.strResult = String_GetWeaselString(strDamageMethod, tTextInfo.strResult, strDamage, strDamageType)
+		tEvent.strResult = String_GetWeaselString(strDamageMethod, tEvent.strResult, strDamage, strDamageType)
 	end
 
-	if tEventArgs.nShield and tEventArgs.nShield > 0 then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tTextInfo.strResult, tEventArgs.nShield)
+	if tEvent.nShield and tEvent.nShield > 0 then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tEvent.strResult, tEvent.nShield)
 	end
 
-	if tEventArgs.nAbsorption and tEventArgs.nAbsorption > 0 then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tTextInfo.strResult, tEventArgs.nAbsorption)
+	if tEvent.nAbsorption and tEvent.nAbsorption > 0 then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tEvent.strResult, tEvent.nAbsorption)
 	end
 
-	if tEventArgs.nOverkill and tEventArgs.nOverkill > 0 then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tTextInfo.strResult, tEventArgs.nOverkill)
+	if tEvent.nOverkill and tEvent.nOverkill > 0 then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tEvent.strResult, tEvent.nOverkill)
 	end
 
-	if tEventArgs.bTargetVulnerable then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageVulnerable"), tTextInfo.strResult)
+	if tEvent.bTargetVulnerable then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageVulnerable"), tEvent.strResult)
 	end
 
-	if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
-		tTextInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), tTextInfo.strResult)
+	if tEvent.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), tEvent.strResult)
 	end
 
-	self:AddLogEntry(tTextInfo)
+	self:AddLogEntry(tEvent)
 
-	if tEventArgs.bTargetKilled then
-		tEventArgs.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_TargetKilled"), tTextInfo.strCaster, tTextInfo.strTarget)
-		self:AddLogEntry(tTextInfo)
+	if tEvent.bTargetKilled then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_TargetKilled"), tEvent.strCaster, tEvent.strTarget)
+		self:AddLogEntry(tEvent)
 	end
 
 end
@@ -352,43 +400,42 @@ function Deaths:OnCombatLogFallingDamage(tEventArgs)
 end
 
 
-function Deaths:OnCombatLogHeal(tEventArgs)
+function Deaths:OnCombatLogHeal(tEvent)
 
-	local tCastInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+	--local tStr = {}
 
-	if not tCastInfo then return end
+	--table.insert(tStr, )
 
-	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
+	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 
 	local strHealType = ""
-	if tEventArgs.eEffectType == Spell.CodeEnumSpellEffectType.HealShields then
+	if tEvent.eEffectType == Spell.CodeEnumSpellEffectType.HealShields then
 		strHealType = Apollo.GetString("CombatLog_HealShield")
 	else
 		strHealType = Apollo.GetString("CombatLog_HealHealth")
 	end
-	tCastInfo.strResult = String_GetWeaselString(strHealType, tCastInfo.strResult, tEventArgs.nHealAmount)
+	tEvent.strResult = String_GetWeaselString(strHealType, tEvent.strResult, tEvent.nHealAmount)
 
-	if tEventArgs.nOverheal and tEventArgs.nOverheal > 0 then
-		tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tCastInfo.strResult, tEventArgs.nOverheal)
+	if tEvent.nOverheal and tEvent.nOverheal > 0 then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tEvent.strResult, tEvent.nOverheal)
 	end
 
-	if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
-		tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), tCastInfo.strResult)
+	if tEvent.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), tEvent.strResult)
 	end
 
-	self:AddLogEntry(tCastInfo)
+	--tEvent.strResult = table.concat(tStr)
+
+	self:AddLogEntry(tEvent)
 end
 
 
-function Deaths:OnCombatLogDeflect(tEventArgs)
-	local tCastInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
+function Deaths:OnCombatLogDeflect(tEvent)
 
-	if not tCastInfo then return end
+	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
+	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Deflect"), tEvent.strResult)
 
-	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
-	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Deflect"), tCastInfo.strResult)
-
-	self:AddLogEntry(tCastInfo)
+	self:AddLogEntry(tEvent)
 end
 
 

@@ -6,14 +6,7 @@
 --
 
 local GM = Apollo.GetAddon("GalaxyMeter")
-local MobData = {
-	tTotalFromListType = {
-		["damaged"]		= "damageDone",
-		["damagedBy"]	= "damageTaken",
-		["healed"]		= "healingDone",
-		["healedBy"]	= "healingDaken",
-	}
-}
+local MobData = {}
 
 
 function MobData:new(o)
@@ -71,7 +64,7 @@ function MobData:Init()
 		pattern = "Mob Damage %s",
 		type = "damaged",
 		segType = "mobs",
-		display = self.GetMobUnitList,
+		display = GM.GetUnitList,
 		report = GM.ReportGenericList,
 		prev = GM.MenuPrevious,
 		next = nil,
@@ -86,7 +79,7 @@ function MobData:Init()
 		pattern = "Mob Damage %s",
 		type = "damagedBy",
 		segType = "mobs",
-		display = self.GetMobUnitList,
+		display = GM.GetUnitList,
 		report = GM.ReportGenericList,
 		prev = GM.MenuPrevious,
 		next = nil,
@@ -105,7 +98,7 @@ function MobData:Init()
 			type = "damageIn",
 			segType = "mobs",
 			prev = GM.MenuPrevious,
-			--next = self.MenuPlayerSpell,
+			next = GM.MenuSpell,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return GM:FormatAmountTime(...)
@@ -119,14 +112,13 @@ function MobData:Init()
 			type = "damageOut",
 			segType = "mobs",
 			prev = GM.MenuPrevious,
-			--next = self.MenuPlayerSpell,
+			next = GM.MenuSpell,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return GM:FormatAmountTime(...)
 			end
 		}
 	}
-
 
 end
 
@@ -161,6 +153,18 @@ function MobData:MenuActorSelection(m, nActorId)
 
 	GM:Dirty(true)
 end
+
+
+--[[
+function MobData:MenuSpell(tSpell, tActor)
+	GM:LogActor(tActor)
+	GM:LogSpell(tSpell.name)
+
+	GM:PushMode(GM.tModes["Spell Breakdown"])
+
+	GM:Dirty(true)
+end
+--]]
 
 
 -- Get actor listing for this segment
@@ -244,6 +248,7 @@ function MobData:GetActorList()
 end
 
 
+--[[
 -- Returns list of mobs who have been damaged or have done damage
 function MobData:GetMobUnitList()
 
@@ -256,7 +261,7 @@ function MobData:GetMobUnitList()
 	local tList = {}
 	local nSum, nMax = 0, 0
 
-	local typeTotal = MobData.tTotalFromListType[mode.type]
+	local typeTotal = GM.tTotalFromListType[mode.type]
 
 	-- Find individual actor sum, total sum, and total max
 	for nActorId, tActor in pairs(tLogActors) do
@@ -307,29 +312,11 @@ function MobData:GetMobUnitList()
 
 	return tList, tTotal, mode.name, ""
 end
-
-
-function MobData:IsMobOrMobPet(unit)
-	if not unit then return false end
-
-	if (unit:GetUnitOwner() and not unit:GetUnitOwner():IsACharacter()) then
-
-	end
-
-	if unit:IsACharacter(unit) then
-		return false
-	end
-
-
-
-	return false
-end
+--]]
 
 
 function MobData:GetDamageEventType(unitCaster, unitTarget)
 
-	--local bSourceIsMob = self:IsMobOrMobPet(unitCaster)
-	--local bTargetIsMob = self:IsMobOrMobPet(unitTarget)
 	local bSourceIsCharacter = GM:IsPlayerOrPlayerPet(unitCaster)
 	local bTargetIsCharacter = GM:IsPlayerOrPlayerPet(unitTarget)
 

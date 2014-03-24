@@ -10,7 +10,6 @@ require "Window"
 require "Unit"
 require "Spell"
 require "GroupLib"
-require "ICCommLib"
 
 
 -----------------------------------------------------------------------------------------------
@@ -49,7 +48,19 @@ local GalaxyMeter = {
 	kClass = {
 		"Warrior", "Engineer", "Esper", "Medic", "Stalker", "Unknown" , "Spellslinger",
 	},
-	kDamageTypeToColor = {}
+	kDamageTypeToColor = {},
+	tTotalFromListType = {
+		["damaged"]		= "damageDone",
+		["damagedBy"]	= "damageTaken",
+		["healed"]		= "healingDone",
+		["healedBy"]	= "healingDaken",
+	},
+	tDamageTypeToString = {
+		["damaged"] = "Damage Done",
+		["damagedBy"] = "Damage Taken",
+		["healed"] = "Healing Done",
+		["healedby"] = "Healing Taken",
+	}
 }
 
 local gLog
@@ -91,7 +102,7 @@ function GalaxyMeter:OnLoad()
 	local GeminiLogging = Apollo.GetPackage("GeminiLogging-1.1").tPackage
 
 	gLog = GeminiLogging:GetLogger({
-		level = GeminiLogging.INFO,
+		level = GeminiLogging.ERROR,
 		pattern = "[%d] %n [%c:%l] - %m",
 		appender = "GeminiConsole"
 	})
@@ -99,6 +110,8 @@ function GalaxyMeter:OnLoad()
 	GalaxyMeter.Log = gLog
 
 	Queue = Apollo.GetPackage("drafto_Queue-1.1").tPackage
+
+	GalaxyMeter.Queue = Queue
 
 	Queue.copy = function(list)
 		local qNew = {first = list.first, last = list.last}
@@ -187,6 +200,10 @@ function GalaxyMeter:OnLoad()
 		self:HexToCColor("ffffff"),	-- Corrupted
 		self:HexToCColor("5491e8"),	-- Spellslinger
 		[23] = CColor.new(1, 0, 0, 1),	-- NonPlayer
+		["Humera"] = self:HexToCColor("6e1dbf"),
+		--["LemonKing"] = self:HexToCColor("f3f315"),
+		["LemonKing"] = self:HexToCColor("f7ff00"),
+		["Ricardo"] = self:HexToCColor("006699"),
 	}
 
 	-- Handled by Configure
@@ -238,15 +255,29 @@ function GalaxyMeter:OnLoad()
 				return self:FormatAmountTime(...)
 			end
 		},
-		["Player Damage Taken By Mob"] = {
+		["Player Damage Done: Unit"] = {
+			name = "Overall Damage Done",       		-- Display name
+			pattern = "Damage done on %s",           	--
+			display = self.GetUnitList,
+			report = self.ReportGenericList,
+			type = "damaged",
+			segType = "players",
+			prev = self.MenuPrevious,					-- Right Click, previous menu
+			next = self.MenuUnitDetailSelection,		-- Left Click, next menu
+			sort = function(a,b) return a.t > b.t end,
+			format = function(...)
+				return self:FormatAmountTime(...)
+			end
+		},
+		["Player Damage Taken: Unit"] = {
 			name = "Damage Taken By Mob",
 			pattern = "Damage taken from %s",
-			display = self.GetOverallList,
+			display = self.GetUnitList,
 			report = self.ReportGenericList,
 			type = "damagedBy",
 			segType = "players",
 			prev = self.MenuPrevious,
-			next = self.MenuPlayerDmgByMobSelection,
+			next = self.MenuUnitDetailSelection,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return self:FormatAmountTime(...)
@@ -288,7 +319,7 @@ function GalaxyMeter:OnLoad()
 			type = "damageOut",
 			segType = "players",
 			prev = self.MenuPrevious,
-			next = self.MenuPlayerSpell,
+			next = self.MenuSpell,
 			nextTotal = self.MenuPlayerSpellTotal,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
@@ -303,7 +334,7 @@ function GalaxyMeter:OnLoad()
 			type = "damageIn",
 			segType = "players",
 			prev = self.MenuPrevious,
-			next = self.MenuPlayerSpell,
+			next = self.MenuSpell,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return self:FormatAmountTime(...)
@@ -317,7 +348,7 @@ function GalaxyMeter:OnLoad()
 			type = "healingOut",
 			segType = "players",
 			prev = self.MenuPrevious,
-			next = self.MenuPlayerSpell,
+			next = self.MenuSpell,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return self:FormatAmountTime(...)
@@ -331,7 +362,7 @@ function GalaxyMeter:OnLoad()
 			type = "healingIn",
 			segType = "players",
 			prev = self.MenuPrevious,
-			next = self.MenuPlayerSpell,
+			next = self.MenuSpell,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
 				return self:FormatAmountTime(...)
@@ -371,7 +402,9 @@ function GalaxyMeter:OnLoad()
 
 	self.tMainMenu = {
 		["Player Damage Done"] = self.tModes["Player Damage Done"],
+		["Player Damage Done: Unit"] = self.tModes["Player Damage Done: Unit"],
 		["Player Damage Taken"] = self.tModes["Player Damage Taken"],
+		["Player Damage Taken: Unit"] = self.tModes["Player Damage Taken: Unit"],
 		["Player Effective Healing"] = self.tModes["Player Effective Healing"],
 		["Player Healing Received"] = self.tModes["Player Healing Received"],
 		--["Dispels"] = self.tModes["Dispels"],
@@ -420,7 +453,9 @@ function GalaxyMeter:OnLoad()
 
 	self.vars.tLogDisplay = self.log[1]
 
-	--gLog:info("OnLoad()")
+	self.MobData:Init()
+
+	gLog:info("OnLoad()")
 
 end
 
@@ -485,7 +520,13 @@ function GalaxyMeter:OnPulse()
 				local strCharName = tMemberInfo.strCharacterName
 
 				if unitMember and self.vars.tLogDisplay.players[strCharName] then
-					self.vars.tLogDisplay.players[strCharName].classId = unitMember:GetClassId()
+
+					if self.ClassToColor[strCharName] then
+						self.vars.tLogDisplay.players[strCharName].classId = strCharName
+					else
+
+						self.vars.tLogDisplay.players[strCharName].classId = unitMember:GetClassId()
+					end
 				end
 
 			end
@@ -712,9 +753,6 @@ function GalaxyMeter:OnGalaxyMeterOn(strCmd, strArg)
 	elseif strArg == "interrupt" then
 		self.Interrupts:Init()
 
-	--elseif strArg == "mob" then
-	--	self.MobData:Init()
-
 	elseif strArg == "" then
 
 		if self.wndMain:IsVisible() then
@@ -762,6 +800,15 @@ function GalaxyMeter:GetTarget()
 end
 
 
+function GalaxyMeter:LogActor(tActor)
+	if tActor then
+		self.vars.tLogActor = tActor
+	end
+
+	return self.vars.tLogActor
+end
+
+
 function GalaxyMeter:LogActorId(nId)
 	if nId then
 		self.vars.nCurrentActorId = nId
@@ -777,6 +824,20 @@ function GalaxyMeter:LogActorName(str)
 	end
 
 	return self.vars.strCurrentPlayerName
+end
+
+
+function GalaxyMeter:GetCurrentMode()
+	return self.vars.tMode
+end
+
+
+function GalaxyMeter:LogSpell(tSpell)
+	if tSpell then
+		self.vars.tLogSpell = tSpell
+	end
+
+	return self.vars.tLogSpell
 end
 
 
@@ -797,10 +858,6 @@ function GalaxyMeter:LogModeType(str)
 	return self.vars.strModeType
 end
 
-
-function GalaxyMeter:GetCurrentMode()
-	return self.vars.tMode
-end
 
 
 function GalaxyMeter:GetLog()
@@ -888,30 +945,6 @@ function GalaxyMeter:OnCombatLogDispel(tEventArgs)
 		gLog:info("OnCombatLogDispel()")
 		gLog:info(tEventArgs)
 	end
-	--[[
-	local tCastInfo = self:HelperCasterTargetSpell(tEventArgs, true, true, true)
-	tCastInfo.strSpellName = string.format("<T Font=\"%s\">%s</T>", kstrFontBold, tCastInfo.strSpellName)
-	local strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
-
-	local strAppend = Apollo.GetString("CombatLog_DispelSingle")
-	if tEventArgs.bRemovesSingleInstance then
-		strAppend = Apollo.GetString("CombatLog_DispelMultiple")
-	end
-
-	local tSpellCount =
-	{
-		["name"] = Apollo.GetString("CombatLog_SpellUnknown"),
-		["count"] = tEventArgs.nInstancesRemoved
-	}
-
-	local strArgRemovedSpellName = tEventArgs.splRemovedSpell:GetName()
-	if strArgRemovedSpellName and strArgRemovedSpellName~= "" then
-		tSpellCount["name"] = strArgRemovedSpellName
-	end
-
-	strResult = String_GetWeaselString(strAppend, strResult, tSpellCount)
-	self:PostOnChannel(string.format("<T TextColor=\"%s\">%s</T>", tCastInfo.strColor, strResult))
-	--]]
 end
 
 
@@ -948,12 +981,13 @@ function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 		if not tEvent then return end
 
 		tEvent.bDeflect = false
-		tEvent.nDamage = tEventArgs.tHealData.nHealAmount
+		tEvent.nDamage = tEventArgs.tHealData[1].nHealAmount
 		--tEvent.Shield = tEventArgs.nShield
 		--tEvent.Absorb = tEventArgs.nAbsorption
 		--tEvent.Periodic = tEventArgs.bPeriodic
-		tEvent.nOverheal = tEventArgs.tHealData.nOverheal
+		tEvent.nOverheal = tEventArgs.tHealData[1].nOverheal
 		--tEvent.eResult = tEventArgs.eCombatResult
+		tEvent.eVitalType = tEventArgs.tHealData[1].eVitalType
 
 		--tEvent.eEffectType = tEventArgs.eEffectType
 
@@ -962,7 +996,7 @@ function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 
 		tEvent.nTypeId = self:GetHealEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
 
-		if tEvent.nTypeId and tEvent.nTypeId > 0 and tEvent.nDamage then
+		if tEvent.nTypeId > 0 and tEvent.nDamage then
 
 			self:AssignPlayerInfo(tEvent, tEventArgs)
 
@@ -970,8 +1004,7 @@ function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 
 			self:UpdateSpell(tEvent, player)
 		else
-			gLog:error("OnCLHeal: Something went wrong!  Invalid type Id!")
-			return
+			gLog:error(string.format("OnCLTransference: Something went wrong! type %d dmg %d", tEvent.nTypeId, tEvent.nDamage or 0))
 		end
 	end
 
@@ -983,9 +1016,7 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 
 	local tEvent = self:HelperCasterTargetSpell(tEventArgs, true, true)
 
-	if not tEvent then
-	    return
-	end
+	if not tEvent then return end
 
 	tEvent.nDamage = 0
 	tEvent.bDeflect = true
@@ -1012,7 +1043,6 @@ end
 
 
 function GalaxyMeter:OnCombatLogDamage(tEventArgs)
-	self:Rover("CombatLogDamage", tEventArgs)
 
 	local tEvent = self:HelperCasterTargetSpell(tEventArgs, true, true)
 
@@ -1028,6 +1058,7 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 	tEvent.eResult = tEventArgs.eCombatResult
 	tEvent.eDamageType = tEventArgs.eDamageType
 	tEvent.eEffectType = tEventArgs.eEffectType
+	tEvent.bTargetKilled = tEventArgs.bTargetKilled
 
 	if self:ShouldThrowAwayDamageEvent(tEventArgs.unitCaster, tEventArgs.unitTarget) then
 		return
@@ -1046,13 +1077,15 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 	self:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
-	if tEvent.nTypeId and tEvent.nTypeId > 0 and tEvent.nDamage then
+	if tEvent.nTypeId > 0 and tEvent.nDamage then
 
 		self:AssignPlayerInfo(tEvent, tEventArgs)
 
 		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
 
 		self:UpdateSpell(tEvent, player)
+
+		Event_FireGenericEvent("GalaxyMeterLogDamage", tEvent)
 
 	else
 		gLog:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
@@ -1063,7 +1096,6 @@ end
 
 
 function GalaxyMeter:OnCombatLogHeal(tEventArgs)
-	self:Rover("CombatLogHeal", tEventArgs)
 
 	local tEvent = self:HelperCasterTargetSpell(tEventArgs, true, true)
 
@@ -1071,12 +1103,12 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 
 	tEvent.bDeflect = false
 	tEvent.nDamage = tEventArgs.nHealAmount
+	tEvent.nHealAmount = tEventArgs.nHealAmount
 	--tEvent.Shield = tEventArgs.nShield
 	--tEvent.Absorb = tEventArgs.nAbsorption
 	--tEvent.Periodic = tEventArgs.bPeriodic
 	tEvent.nOverheal = tEventArgs.nOverheal
 	tEvent.eResult = tEventArgs.eCombatResult
-
 	tEvent.eEffectType = tEventArgs.eEffectType
 
 	-- Temporary hack until we switch to checking spell effect type instead of tEvent.DamageType
@@ -1095,6 +1127,8 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
 
 		self:UpdateSpell(tEvent, player)
+
+		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
 	else
 		gLog:error("OnCLHeal: Something went wrong!  Invalid type Id!")
 		return
@@ -1114,6 +1148,8 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 		nTargetClassId = nil,
 		nCasterId = nil,
 		nTargetId = nil,
+		unitCaster = tEventArgs.unitCaster,
+		unitTarget = tEventArgs.unitTarget,
 	}
 
 	if bSpell then
@@ -1126,6 +1162,8 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 	local bCasterIsPlayerOrPet = tEventArgs.unitCaster and self:IsPlayerOrPlayerPet(tEventArgs.unitCaster)
 	local bTargetIsPlayerOrPet = tEventArgs.unitTarget and self:IsPlayerOrPlayerPet(tEventArgs.unitTarget)
 
+	tInfo.bCasterIsPlayer = bCasterIsPlayerOrPet
+	tInfo.bTargetIsPlayer = bTargetIsPlayerOrPet
 
 	if tEventArgs.unitCaster then
 		tInfo.nCasterId = tEventArgs.unitCaster:GetId()
@@ -1133,7 +1171,6 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 
 		if tEventArgs.unitCasterOwner and tEventArgs.unitCasterOwner:IsACharacter() then
 			-- Caster is a pet, assign caster to the owners name
-			self:Rover("SpellPet", tEventArgs)
 
 			tInfo.strSpellName = ("%s: %s"):format(tEventArgs.unitCaster:GetName(), tInfo.strSpellName)
 
@@ -1142,7 +1179,6 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 
 		else
 			-- Caster was not a pet
-			self:Rover("SpellNotPet", tEventArgs)
 			tInfo.strCaster = self:HelperGetNameElseUnknown(tEventArgs.unitCaster)
 			tInfo.nCasterClassId = tEventArgs.unitCaster:GetClassId()
 		end
@@ -1214,8 +1250,8 @@ function GalaxyMeter:HelperGetNameElseUnknown(nArg)
 		local name = nArg:GetName()
 
 		-- Fun
-		name = name:gsub("Rica", "Reta")
-		name = name:gsub("aaa", "aaaaaaaaaaaaa")
+		--name = name:gsub("Rica", "Reta")
+		name = name:gsub("yona", "yonaaaaaaaaaaaaa")
 
 		return name
 	end
@@ -1271,6 +1307,7 @@ function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
 		end
 
 		gLog:error("Unknown heal type")
+		return 0
 	end
 
 	--[[
@@ -1311,8 +1348,6 @@ end
 
 
 function GalaxyMeter:GetDamageEventType(unitCaster, unitTarget)
-
-	--self:Rover("GetDmgType", {caster = unitCaster, target = unitTarget})
 
 	local bSourceIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitCaster)
 	local bTargetIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitTarget)
@@ -1636,8 +1671,6 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
 
     elseif tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.DamageIn then
 
-		self:Rover("DamageIn", {tEvent=tEvent, actor=actor})
-
 		if not tEvent.bDeflect then
 			actor.damageTaken = actor.damageTaken + nAmount
 			actor.damagedBy[tEvent.strCaster] = (actor.damagedBy[tEvent.strCaster] or 0) + nAmount
@@ -1672,14 +1705,27 @@ end
 -- Data Formatters
 -----------------------------------------------------------------------------------------------
 
+local function FormatScaleAmount(nAmount)
+	if nAmount > 1000000 then
+		return ("%2.2fM"):format(nAmount / 1000000)
+	elseif nAmount > 1000 then
+		return ("%2.2fK"):format(nAmount / 1000)
+	else
+		return ("%2.2f"):format(nAmount)
+	end
+end
+
 
 function GalaxyMeter:FormatAmountTime(nAmount, nTime)
-	return ("%s (%.1f)"):format(nAmount, nAmount / nTime)
+
+	local strFmtAmount = FormatScaleAmount(nAmount)
+
+	return ("%s (%s)"):format(strFmtAmount, FormatScaleAmount(nAmount / nTime))
 end
 
 
 function GalaxyMeter:FormatAmount(nCount)
-	return ("%d"):format(nCount)
+	return ("%s"):format(nCount)
 end
 
 
@@ -1693,10 +1739,8 @@ end
 function GalaxyMeter:GetScalarList()
 	local tList = {}
 
-	-- These should have already been set
 	local tLogSegment = self.vars.tLogDisplay
 	local strPlayerName = self.vars.strCurrentPlayerName
-	--local tPlayerLog = tLogSegment[self.vars.strCurrentLogType][strPlayerName]
 
 	local tPlayerLog = self:GetPlayer(tLogSegment, {PlayerName=strPlayerName})
 
@@ -1725,7 +1769,6 @@ function GalaxyMeter:GetScalarList()
 			n = name,
 			--t = total,
 			c = GalaxyMeter.kDamageTypeToColor[2],	-- TODO change this to something related to the type of mob/player that was interrupted
-			--c = kDamageTypeToColor[v.dmgType],
 			tStr = mode.format(total),
 			progress = 0,
 			click = function(_, btn)
@@ -1803,29 +1846,129 @@ function GalaxyMeter:GetScalarSubList()
 end
 
 
-function GalaxyMeter:GetSimpleList()
-	local tLogSegment = self.vars.tLogDisplay
-	local mode = self.vars.tMode
+--[[
+-- We got here from a MenuUnitDetailSelection menu
+-- Display what spells from the actor damaged/healed the target
+ ]]
+function GalaxyMeter:GetActorUnitList()
+	local mode = self:GetCurrentMode()
+	--local tLogSegment = self:GetLogDisplay()
+	local tActor = self:LogActor()
 
-	-- Grab segment type from mode: players/mobs/etc
-	local tSegmentType = tLogSegment[mode.segType]
+	-- Who did this actor interact with?
+	local typeTotal = GalaxyMeter.tTotalFromListType[mode.type]
+
+	local nMax = 0
+	local nActorTotal = tActor[typeTotal]
+
+	-- Find max
+	for k, v in pairs(tActor[mode.type]) do
+		if v > nMax then v = nMax end
+	end
 
 	local nTime = self:GetLogDisplayTimer()
 
-	-- Get total and max
-	local nMax = 0
-	local tTotal = {t = 0, c = GalaxyMeter.kDamageStrToColor.Self, progress = 1}
-	for k, v in pairs(tSegmentType) do
-		local n = (v[mode.type] or 0)
-		tTotal.t = tTotal.t + n
+	-- Build list
+	local tList = {}
+	for k, v in pairs(tActor[mode.type]) do
 
-		if n > nMax then
-			nMax = n
+		--self:Rover("GetActorUnitList", {nTime = nTime, k=k, v=v})
+
+		table.insert(tList, {
+			n = k,
+			t = v,
+			tStr = mode.format(v, nTime),
+			progress = v / nMax,
+			c = self.ClassToColor[23],	-- This should be the class of the target...
+			click = function(m, btn)
+				if btn == 1 and mode.prev then
+					mode.prev(self)
+				end
+			end
+		})
+	end
+
+	local tTotal = {
+		n = mode.name,
+		progress = 1,
+		c = self.ClassToColor[tActor.classId],
+		tStr = mode.format(nActorTotal, nTime),
+	}
+
+	return tList, tTotal, mode.name, ""
+end
+
+
+--[[
+-- Returns list of actors who have been damaged or have done damage/healing
+ ]]
+function GalaxyMeter:GetUnitList()
+
+	local mode = self:GetCurrentMode()
+	local tLogSegment = self:GetLogDisplay()
+	local tLogActors = tLogSegment[mode.segType]	--mobs or players
+
+	local nTime = self:GetLogDisplayTimer()
+
+	local tList = {}
+	local nSum, nMax = 0, 0
+
+	local typeTotal = GalaxyMeter.tTotalFromListType[mode.type]
+
+	-- Find individual actor sum, total sum, and total max
+	for nActorId, tActor in pairs(tLogActors) do
+
+		--log.mobs[mobId].damaged[] => typeTotal damageDone
+		--log.players[name].damagedBy[] => typeTotal damageTaken
+		if tActor[typeTotal] > 0 then
+
+			local nActorSum = 0
+			for k, v in pairs(tActor[mode.type]) do
+				nSum = nSum + v
+				if v > nMax then nMax = v end
+			end
 		end
 	end
-	tTotal.tStr = mode.format(tTotal.t, nTime)
 
+	-- Build list of units that have interatec with this actor
+	for nActorId, tActor in pairs(tLogActors) do
 
+		-- Check if its been damaged/damageBy'd
+		if tActor[typeTotal] > 0 then
+
+			local nActorTotal = tActor[typeTotal]
+
+			table.insert(tList, {
+				n = tActor.strName,
+				t = nActorTotal,
+				c = self.ClassToColor[tActor.classId],
+				tStr = mode.format(nActorTotal, nTime),
+				progress = nActorTotal / nMax,
+				click = function(m, btn)
+					if btn == 0 and mode.next then
+						mode.next(self, tActor)
+					elseif btn == 1 and mode.prev then
+						mode.prev(self)
+					end
+				end
+			})
+		end
+	end
+
+	local tTotal = {
+		n = mode.name,
+		t = nSum,
+		c = GalaxyMeter.kDamageStrToColor.Self, progress = 1,
+		tStr = mode.format(nSum, nTime),
+	}
+
+	local strReportTotalText = string.format("%s - %s (%s) - %s",
+		string.format(mode.pattern, tLogSegment.name),
+		FormatScaleAmount(tTotal.t),
+		FormatScaleAmount(tTotal.t / tLogSegment.combat_length),
+		self:SecondsToString(tLogSegment.combat_length))
+
+	return tList, tTotal, mode.name, strReportTotalText
 end
 
 
@@ -1890,10 +2033,10 @@ function GalaxyMeter:GetOverallList()
 	end
 
 	-- TODO This is only used for generating a report, refactor
-	local strTotalText = string.format("%s - %d (%.2f) - %s",
+	local strTotalText = string.format("%s - %s (%s) - %s",
 		string.format(mode.pattern, tLogSegment.name),
-		tTotal.t,
-		tTotal.t / tLogSegment.combat_length,
+		FormatScaleAmount(tTotal.t),
+		FormatScaleAmount(tTotal.t / tLogSegment.combat_length),
 		self:SecondsToString(tLogSegment.combat_length))
 
     return tList, tTotal, mode.name, strTotalText
@@ -1921,8 +2064,6 @@ function GalaxyMeter:GetPlayerList()
 
 	local nTime = self:GetLogDisplayTimer()
 
-	self:Rover("GetPlayerList", {dmgTypeTotal=dmgTypeTotal, nDmgTotal=nDmgTotal, tPlayerLog=tPlayerLog})
-
 	local tTotal = {
         n = string.format("%s's %s", strPlayerName, mode.type),
         t = nDmgTotal, -- "Damage to XXX"
@@ -1945,24 +2086,21 @@ function GalaxyMeter:GetPlayerList()
 
     for k, v in pairs(tPlayerLog[mode.type]) do
 
-		-- Only show spells that contributed? Hm a spell that was only deflected won't be displayed...
-		--if v.total > 0 then
-
-			table.insert(tList, {
-				n = k,
-				t = v.total,
-				c = GalaxyMeter.kDamageTypeToColor[v.dmgType],
-				tStr = mode.format(v.total, nTime),
-				progress = v.total / nMax,
-				click = function(m, btn)
-					if btn == 0 and mode.next then
-						mode.next(self, v, tPlayerLog)
-					elseif btn == 1 then
-						mode.prev(self)
-					end
+		table.insert(tList, {
+			n = k,
+			t = v.total,
+			c = GalaxyMeter.kDamageTypeToColor[v.dmgType],
+			tStr = mode.format(v.total, nTime),
+			progress = v.total / nMax,
+			click = function(m, btn)
+				if btn == 0 and mode.next then
+					mode.next(self, v, tPlayerLog)
+				elseif btn == 1 then
+					mode.prev(self)
 				end
-			})
-		--end
+			end
+		})
+
 	end
 
 	local strDisplayText = string.format("%s's %s", strPlayerName, mode.type)
@@ -1984,18 +2122,18 @@ end
 
 function GalaxyMeter:GetSpellList()
 
-	--self:Rover("GetSpellListVars", self.vars)
-
 	--strModeType = damageOut
 	--strCurrentLogType = damageDone
 
-	local strPlayerName = self.vars.strCurrentPlayerName
+	local strActorName = self:LogActorName()
 	--local mode = self.vars.tMode
 
-	local tPlayerLog = self.vars.tLogPlayer
+	local tActorLog = self.vars.tLogActor
 
-	local tPlayerLogSpells = tPlayerLog[self.vars.strModeType]
+	local tPlayerLogSpells = tActorLog[self.vars.strModeType]
 	local tSpell = tPlayerLogSpells[self.vars.strCurrentSpellName]
+
+	local tSpell = self:LogSpell()
 
 	if not tSpell then
 		gLog:error("GetSpellList() nil tSpell")
@@ -2033,7 +2171,7 @@ function GalaxyMeter:GetSpellList()
 	table.insert(tList, {n = "Deflects", tStr = string.format("%d (%.2f%%)", tSpell.deflectCount, tSpell.deflectCount / tSpell.castCount * 100), click = cFunc})
 
 
-	local strDisplayText = string.format("%s's %s", self.vars.strCurrentPlayerName, tSpell.name)
+	local strDisplayText = string.format("%s's %s", strActorName, tSpell.name)
 
 	local strTotalText = strDisplayText .. " for " .. self.vars.tLogDisplay.name
 
@@ -2042,8 +2180,6 @@ end
 
 
 function GalaxyMeter:GetSpellTotalsList()
-
-	self:Rover("GetSpellTotalsListVars", self.vars)
 
 	local strPlayerName = self.vars.strCurrentPlayerName
 	local tPlayerLog = self.vars.tLogPlayer
@@ -2186,9 +2322,11 @@ function GalaxyMeter:ReportGenericList(tList, tTotal, strDisplayText, strTotalTe
 
 	for i = 1, #tList do
 		local v = tList[i]
-		if v.t then
-			table.insert(tStrings, string.format("%d) %s - %s (%.2f)  %.2f%%",
-				i, v.n, v.t, v.t / tLogSegment.combat_length, v.t / total * 100))
+		if v.strReport then
+			table.insert(tStrings, v.strReport)
+		elseif v.t then
+			table.insert(tStrings, string.format("%d) %s - %s (%s)  %.2f%%",
+				i, v.n, FormatScaleAmount(v.t), FormatScaleAmount(v.t / tLogSegment.combat_length), v.t / total * 100))
 		else
 			table.insert(tStrings, string.format("%d) %s - %s", i, v.n, v.tStr))
 		end
@@ -2254,8 +2392,6 @@ function GalaxyMeter:DisplayUpdate()
 
 	-- Self reference needed for calling object method
 	local tList, tTotal, strDisplayText = mode.display(self)
-
-	self:Rover("DisplayUpdate", {list = tList})
 
     if mode.sort ~= nil then
         table.sort(tList, mode.sort)
@@ -2382,8 +2518,6 @@ end
 
 -- Pop last mode off of the stack
 function GalaxyMeter:PopMode()
-	gLog:info("PopMode()")
-	gLog:info(self.vars.tModeLast)
 
 	if self.vars.tModeLast and #self.vars.tModeLast > 0 then
 		local mode = table.remove(self.vars.tModeLast)
@@ -2402,11 +2536,6 @@ function GalaxyMeter:PushMode(tNewMode)
 	table.insert(self.vars.tModeLast, self.vars.tMode)
 
 	self.vars.tMode = tNewMode
-
-	--[[
-	gLog:info("PushMode")
-	gLog:info(self.vars.tModeLast)
-	--]]
 end
 
 
@@ -2422,21 +2551,15 @@ function GalaxyMeter:DisplayMainMenu()
 			click = function(m, btn)
 
 				if v and self.vars.tLogDisplay.start > 0 and btn == 0 then
-					--gLog:info("MainMenu, next mode =")
-					--gLog:info(v)
 
 					-- Call next on CURRENT mode, v arg is next mode
-					--m.vars.tMode.next(m, v)
 					self:PushMode(v)
-					--self.vars.tMode = v
 
 					self.bDirty = true
 				end
 			end
         })
 	end
-
-	self:Rover("MainMenu", tMenuList)
 
     return tMenuList, nil, "Main Menu"
 end
@@ -2464,25 +2587,36 @@ function GalaxyMeter:MenuPlayerSelection(strPlayerName)
 end
 
 
-function GalaxyMeter:MenuPlayerDmgByMobSelection(strPlayerName)
+--[[
+- Menu reached from 'Player Damage Done: Unit' -> 'Player Blah' clicked
+- (GetUnitList)
+- Previous menu was the Main Menu so it's safe to assign actor name and such
+ ]]
+function GalaxyMeter:MenuUnitDetailSelection(tActor)
 	local mode = self:GetCurrentMode()
 
-	self:LogActorName(strPlayerName)
-	self:LogType(mode.type)
+	self:Rover("MenuUnitDetailSelection", {vars=self.vars})
+
+	self:LogActor(tActor)
+	self:LogActorName(tActor.strName)
+	self:LogType(mode.type)	-- damaged/By healed/healedBy
 	self:LogModeType(self.tListFromSubType[mode.type])
 
-	gLog:info(string.format("MenuPlayerDmgByMobSelection: %s -> %s", self:LogActorName(), self:LogType()))
+	gLog:info(string.format("MenuUnitDetailSelection: %s -> %s", self:LogActorName(), self:LogType()))
 
 	local newMode = {
-		display = self.GetPlayerDmgByMobList,
+		-- %s's Damage Done
+		name = ("%s's %s"):format(tActor.strName, GalaxyMeter.tDamageTypeToString[mode.type]),
+		display = self.GetActorUnitList,
 		report = self.ReportGenericList,
 		type = mode.type,
 		segType = mode.segType,
 		prev = self.MenuPrevious,
-		next = self.MenuPlayerDmgByMobBreakdownSelection,
-		sort = nil,
-		format = function()
-			return string.format()
+		-- Damage done to mob type by actor
+		--next = self.MenuPlayerDmgByMobBreakdownSelection,
+		sort = function(a, b) return a.t > b.t end,
+		format = function(...)
+			return GalaxyMeter:FormatAmountTime(...)
 		end
 	}
 
@@ -2492,15 +2626,12 @@ function GalaxyMeter:MenuPlayerDmgByMobSelection(strPlayerName)
 end
 
 
-function GalaxyMeter:MenuPlayerSpell(tSpell, tLogPlayer)
+function GalaxyMeter:MenuSpell(tSpell, tActor)
+
+	self:LogActor(tActor)
+	self:LogSpell(tSpell)
+
 	self:PushMode(self.tModes["Spell Breakdown"])
-
-	--gLog:info("MenuPlayerSpell " .. tSpell.name)
-	--gLog:info(tLogPlayer)
-	self.vars.strCurrentSpellName = tSpell.name
-	self.vars.tLogPlayer = tLogPlayer
-
-	--self.vars.tMode = self.tModes["Spell Breakdown"]
 
 	self.bDirty = true
 end
@@ -2531,13 +2662,10 @@ function GalaxyMeter:MenuPlayerSpellTotal(tPlayerLog)
 	self.bDirty = true
 
 	self.vars.tMode = newMode
-
 end
 
 
 function GalaxyMeter:MenuPrevious()
-	gLog:info("MenuPrevious()")
-
 
 	local currentMode = self.vars.tMode
 
@@ -2616,10 +2744,6 @@ function GalaxyMeter:OnListItemButtonUp( wndHandler, wndControl, eMouseButton, n
         for i, v in pairs(self.tItems) do
 
             if v.id == id and v.OnClick then
-				if self.settings.bDebug then
-					gLog:info("Calling OnClick()")
-					gLog:info(v)
-				end
                 v.OnClick(self, eMouseButton)
 				if self.bDirty then
 					self.bDirty = false
@@ -2659,6 +2783,8 @@ function GalaxyMeter:OnSave(eType)
 		--else
 		--	tSave.settings.anchor = self.settings.anchor
 		--end
+
+		tSave.bActive = self.wndMain:IsVisible()
 		
 	elseif eType == GameLib.CodeEnumAddonSaveLevel.Character then
 	end
@@ -2668,6 +2794,7 @@ end
 
 
 function GalaxyMeter:OnRestore(eType, t)
+	gLog:info("OnRestore()")
 
 	if not t or not t.version or t.version < GalaxyMeter.nVersion then
 		return
@@ -2681,12 +2808,15 @@ function GalaxyMeter:OnRestore(eType, t)
 			if t.settings.anchor then
 				--self.settings.anchor = t.settings.anchor
 				self.wndMain:SetAnchorOffsets(unpack(t.settings.anchor))
+
+				-- Reopen if it was last open
+				if t.bActive then
+					self.wndMain:Show(true)
+					self:RefreshDisplay()
+				end
 			end
 
 		end
-
-		gLog:info("OnRestore General")
-		gLog:info(t)
 	end
 end
 
