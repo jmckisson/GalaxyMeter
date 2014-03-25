@@ -501,7 +501,7 @@ function GalaxyMeter:OnPulse()
 	
 	local unitPlayer = GameLib.GetPlayerUnit()
 	if unitPlayer then
-		self.unitPlayer = GameLib.GetPlayerUnit()
+		self.unitPlayer = unitPlayer
 		self.unitPlayerId = self.unitPlayer:GetId()
 		self.PlayerId = tostring(self.unitPlayerId)
 		self.PlayerName = self.unitPlayer:GetName()
@@ -605,7 +605,13 @@ function GalaxyMeter:OnUnitDestroyed(unit)
 
 end
 
+
+--[[
+-- Determine if group is in combat by scanning all group members.
+-- Checks if a pet owned by the player unit may be affecting their
+-- combat status, ie Esper Geist.
 -- @return true if any group members are in combat
+ ]]
 function GalaxyMeter:GroupInCombat()
 
 	if not GameLib.GetPlayerUnit() then
@@ -690,6 +696,7 @@ function GalaxyMeter:NewLogSegment()
     -- Push a new log entry to the top of the history stack
     local log = {
         start = 0,
+		stop = 0,
         combat_length = 0,
         name = "Current",	-- Segment name
         ["players"] = {},	-- Array containing players involved in this segment
@@ -730,6 +737,8 @@ end
 function GalaxyMeter:PushLogSegment()
 	gLog:info("Pushing log segment")
 
+	self.tCurrentLog.stop = os.clock()
+
     -- Pop off oldest, TODO Add config option to keep N old logs
     if #self.log >= 30 then
         table.remove(self.log)
@@ -738,9 +747,32 @@ function GalaxyMeter:PushLogSegment()
 	self.timerDisplay:Stop()
 	self.timerTimer:Stop()
 
+	-- Save player active times
+	for k, player in pairs(self.tCurrentLog.players) do
+		player.timeActive = player.lastAction - player.firstAction
+	end
+
 	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
 
     self:NewLogSegment()
+end
+
+
+-- Returns the time (in seconds) a player has been active for a set.
+function GalaxyMeter:GetActiveTime(tLog, tPlayer)
+	local maxtime = 0
+
+	-- Add recorded time (for total set)
+	if tPlayer.timeActive > 0 then
+		maxtime = tPlayer.timeActive
+	end
+
+	-- Add in-progress time if set is not ended.
+	if not tLog.stop and tPlayer.firstAction then
+		maxtime = maxtime + tPlayer.lastAction - tPlayer.firstAction
+	end
+
+	return maxtime
 end
 
 
@@ -1727,14 +1759,17 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
     end
 
     if spell then
-		actor.lastAction = os.clock()
+		local timeNow = os.clock()
+
+		if not actor.firstAction then
+			actor.firstAction = timeNow
+		end
+		actor.lastAction = timeNow
         self:TallySpellAmount(tEvent, spell)
 		self.bDirty = true
     end
 
 end
-
-
 
 
 
