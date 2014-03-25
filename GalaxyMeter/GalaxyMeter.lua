@@ -2759,6 +2759,9 @@ function GalaxyMeter:AddItem(i)
 	return self.tItems[i]
 end
 
+function GalaxyMeter:OnListItemGenerateTooltip(wndHandler)
+	wndHandler:SetTooltip(wndHandler:FindChild("LeftText"):GetText())
+end
 
 function GalaxyMeter:OnListItemMouseEnter( wndHandler, wndControl, x, y )
 	wndHandler:FindChild("Highlight"):Show(true)
