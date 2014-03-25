@@ -67,7 +67,7 @@ function MobData:Init()
 		display = GM.GetUnitList,
 		report = GM.ReportGenericList,
 		prev = GM.MenuPrevious,
-		next = nil,
+		next = GM.MenuUnitDetailSelection,
 		sort = function(a,b) return a.t > b.t end,
 		format = function(...)
 			return GM:FormatAmountTime(...)
@@ -82,7 +82,7 @@ function MobData:Init()
 		display = GM.GetUnitList,
 		report = GM.ReportGenericList,
 		prev = GM.MenuPrevious,
-		next = nil,
+		next = GM.MenuUnitDetailSelection,
 		sort = function(a,b) return a.t > b.t end,
 		format = function(...)
 			return GM:FormatAmountTime(...)
@@ -189,9 +189,9 @@ function MobData:GetActorList()
 
 	local nDmgTotal = tActorLog[dmgTypeTotal]
 
-	local nTime = GM:GetLogDisplayTimer()
+	local nTime = GM:GetActiveTime(tLogSegment, tActorLog)
 
-	GM:Rover("GetActorList", {dmgTypeTotal=dmgTypeTotal, nDmgTotal=nDmgTotal, tActorLog=tActorLog})
+	--GM:Rover("GetActorList", {dmgTypeTotal=dmgTypeTotal, nDmgTotal=nDmgTotal, tActorLog=tActorLog})
 
 	local tTotal = {
 		n = string.format("%s's %s", strName, mode.type),

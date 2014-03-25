@@ -696,7 +696,7 @@ function GalaxyMeter:NewLogSegment()
     -- Push a new log entry to the top of the history stack
     local log = {
         start = 0,
-		stop = 0,
+		--stop = 0,
         combat_length = 0,
         name = "Current",	-- Segment name
         ["players"] = {},	-- Array containing players involved in this segment
@@ -758,21 +758,25 @@ function GalaxyMeter:PushLogSegment()
 end
 
 
--- Returns the time (in seconds) a player has been active for a set.
-function GalaxyMeter:GetActiveTime(tLog, tPlayer)
-	local maxtime = 0
+--[[
+-- Gets activity time for an actor in a log segment
+ ]]
+function GalaxyMeter:GetActiveTime(tLog, tActor)
+	local nTimeTotal = 0
 
 	-- Add recorded time (for total set)
-	if tPlayer.timeActive > 0 then
-		maxtime = tPlayer.timeActive
+	--[[
+	if tActor.timeActive then
+		nTimeTotal = tActor.timeActive
 	end
+	--]]
 
 	-- Add in-progress time if set is not ended.
-	if not tLog.stop and tPlayer.firstAction then
-		maxtime = maxtime + tPlayer.lastAction - tPlayer.firstAction
+	if not tLog.stop and tActor.firstAction then
+		nTimeTotal = nTimeTotal + tActor.lastAction - tActor.firstAction
 	end
 
-	return maxtime
+	return math.max(1, nTimeTotal)
 end
 
 
@@ -1924,7 +1928,7 @@ end
  ]]
 function GalaxyMeter:GetActorUnitList()
 	local mode = self:GetCurrentMode()
-	--local tLogSegment = self:GetLogDisplay()
+	local tLogSegment = self:GetLogDisplay()
 	local tActor = self:LogActor()
 
 	-- Who did this actor interact with?
@@ -1938,7 +1942,7 @@ function GalaxyMeter:GetActorUnitList()
 		if v > nMax then v = nMax end
 	end
 
-	local nTime = self:GetLogDisplayTimer()
+	local nTime = self:GetActiveTime(tLogSegment, tActor)
 
 	-- Build list
 	local tList = {}
@@ -2010,11 +2014,13 @@ function GalaxyMeter:GetUnitList()
 
 			local nActorTotal = tActor[typeTotal]
 
+			local nActorTime = self:GetActiveTime(tLogSegment, tActor)
+
 			table.insert(tList, {
 				n = tActor.strName,
 				t = nActorTotal,
 				c = self.ClassToColor[tActor.classId],
-				tStr = mode.format(nActorTotal, nTime),
+				tStr = mode.format(nActorTotal, nActorTime),
 				progress = nActorTotal / nMax,
 				click = function(m, btn)
 					if btn == 0 and mode.next then
@@ -2037,8 +2043,8 @@ function GalaxyMeter:GetUnitList()
 	local strReportTotalText = string.format("%s - %s (%s) - %s",
 		string.format(mode.pattern, tLogSegment.name),
 		FormatScaleAmount(tTotal.t),
-		FormatScaleAmount(tTotal.t / tLogSegment.combat_length),
-		self:SecondsToString(tLogSegment.combat_length))
+		FormatScaleAmount(tTotal.t / nTime),
+		self:SecondsToString(nTime))
 
 	return tList, tTotal, mode.name, strReportTotalText
 end
@@ -2078,23 +2084,25 @@ function GalaxyMeter:GetOverallList()
 	tTotal.tStr = mode.format(tTotal.t, nTime)
 
 	local tList = {}
-    for k, v in pairs(tSegmentType) do
+    for k, tActor in pairs(tSegmentType) do
 
 		-- Only show people who have contributed
-		if v[mode.type] and v[mode.type] > 0 then
+		if tActor[mode.type] and tActor[mode.type] > 0 then
 
-			local nAmount = v[mode.type]
+			local nAmount = tActor[mode.type]
+
+			local nActorTime = self:GetActiveTime(tLogSegment, tActor)
 
 			table.insert(tList, {
-				n = v.strName,
+				n = tActor.strName,
 				t = nAmount,
-				tStr = mode.format(nAmount, nTime),
-				c = self.ClassToColor[v.classId],
+				tStr = mode.format(nAmount, nActorTime),
+				c = self.ClassToColor[tActor.classId],
 				progress = nAmount / nMax,
 				click = function(m, btn)
 					-- arg is the specific actor log table
 					if btn == 0 and mode.next then
-						mode.next(self, k)
+						mode.next(self, tActor)
 
 					elseif btn == 1 and mode.prev then
 						mode.prev(self)
@@ -2108,8 +2116,8 @@ function GalaxyMeter:GetOverallList()
 	local strTotalText = string.format("%s - %s (%s) - %s",
 		string.format(mode.pattern, tLogSegment.name),
 		FormatScaleAmount(tTotal.t),
-		FormatScaleAmount(tTotal.t / tLogSegment.combat_length),
-		self:SecondsToString(tLogSegment.combat_length))
+		FormatScaleAmount(tTotal.t / nTime),
+		self:SecondsToString(nTime))
 
     return tList, tTotal, mode.name, strTotalText
 end
@@ -2134,7 +2142,7 @@ function GalaxyMeter:GetPlayerList()
 
 	local nDmgTotal = tPlayerLog[dmgTypeTotal]
 
-	local nTime = self:GetLogDisplayTimer()
+	local nTime = self:GetActiveTime(tLogSegment, tPlayerLog)
 
 	local tTotal = {
         n = string.format("%s's %s", strPlayerName, mode.type),
@@ -2185,8 +2193,8 @@ function GalaxyMeter:GetPlayerList()
 		--"%s's blah on %s"
 		strModePatternTemp,
 		nDmgTotal,
-		nDmgTotal / tLogSegment.combat_length,
-		self:SecondsToString(tLogSegment.combat_length))
+		nDmgTotal / nTime,
+		self:SecondsToString(nTime))
 
     return tList, tTotal, strDisplayText, strTotalText
 end
@@ -2374,7 +2382,7 @@ function GalaxyMeter:ReportGenericList(tList, tTotal, strDisplayText, strTotalTe
 
 	local tLogSegment = self.vars.tLogDisplay
 	local mode = self.vars.tMode
-	local combatLength = tLogSegment.combat_length
+	local nTime = self:GetLogDisplayTimer()
 	local tStrings = {}
 	local total = 0
 
@@ -2398,7 +2406,7 @@ function GalaxyMeter:ReportGenericList(tList, tTotal, strDisplayText, strTotalTe
 			table.insert(tStrings, v.strReport)
 		elseif v.t then
 			table.insert(tStrings, string.format("%d) %s - %s (%s)  %.2f%%",
-				i, v.n, FormatScaleAmount(v.t), FormatScaleAmount(v.t / tLogSegment.combat_length), v.t / total * 100))
+				i, v.n, FormatScaleAmount(v.t), FormatScaleAmount(v.t / nTime), v.t / total * 100))
 		else
 			table.insert(tStrings, string.format("%d) %s - %s", i, v.n, v.tStr))
 		end
@@ -2531,7 +2539,7 @@ function GalaxyMeter:OnClearAll()
 		tModeLast = {}
 	}
 	self.Children.EncounterText:SetText(self.vars.tLogDisplay.name)
-	self.Children.TimeText:SetText(self:SecondsToString(self.vars.tLogDisplay.combat_length))
+	self.Children.TimeText:SetText(self:SecondsToString(self:GetLogDisplayTimer()))
 	self:RefreshDisplay()
 end
 
@@ -2640,11 +2648,14 @@ end
 -- A player was clicked from an Overall menu, update the mode to the appropriate selection
 -- @param strPlayerName Player name
 -- @param strSegmentType String identifier for segment type, players/mobs etc
-function GalaxyMeter:MenuPlayerSelection(strPlayerName)
+function GalaxyMeter:MenuPlayerSelection(tPlayer)
 
 	local mode = self.vars.tMode
 
-	self.vars.strCurrentPlayerName = strPlayerName
+	--self.vars.strCurrentPlayerName = strPlayerName
+
+	self:LogActor(tPlayer)
+	self:LogActorName(tPlayer.strName)
 	self.vars.strCurrentLogType = mode.type
 
 	gLog:info(string.format("MenuPlayerSelection: %s -> %s", self.vars.strCurrentPlayerName, self.vars.strCurrentLogType))
@@ -2913,7 +2924,7 @@ function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButt
 	self:HideEncounterDropDown()
 
 	-- Right now this only updates in OnTimer, should probably look at the bDirty logic and move it into RefreshDisplay
-	self.Children.TimeText:SetText(self:SecondsToString(self.vars.tLogDisplay.combat_length))
+	self.Children.TimeText:SetText(self:SecondsToString(self:GetLogDisplayTimer()))
 
 	self.bDirty = true
 	self:RefreshDisplay()
