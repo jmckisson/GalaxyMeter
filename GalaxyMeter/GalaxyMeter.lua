@@ -633,7 +633,7 @@ function GalaxyMeter:GroupInCombat()
 	for i = 1, nMemberCount do
 		local tUnit = GroupLib.GetUnitForGroupMember(i)
 
-		if tUnit and tUnit:IsInCombat() or (bSelfInCombat and tUnit:IsDead()) then
+		if tUnit and (tUnit:IsInCombat() or (bSelfInCombat and tUnit:IsDead())) then
 			bCombat = true
 			break
 		end
