@@ -1067,6 +1067,7 @@ function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 		-- Temporary hack until we switch to checking spell effect type instead of tEvent.DamageType
 		tEvent.eDamageType = GameLib.CodeEnumDamageType.Heal
 
+		--[[
 		tEvent.nTypeId = self:GetHealEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
 
 		if tEvent.nTypeId > 0 and tEvent.nDamage then
@@ -1079,6 +1080,14 @@ function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 		else
 			gLog:error(string.format("OnCLTransference: Something went wrong! type %d dmg %d", tEvent.nTypeId, tEvent.nDamage or 0))
 		end
+		--]]
+
+		if tEvent.nDamage then
+			self:ProcessHeal(tEvent, tEventArgs)
+		else
+			gLog:error(string.format("OnCLTransference: Something went wrong! dmg %d", tEvent.nDamage or 0))
+		end
+
 	end
 
 end
@@ -1191,21 +1200,56 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 		tEvent.eDamageType = GameLib.CodeEnumDamageType.HealShields
 	end
 
-	tEvent.nTypeId = self:GetHealEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+	if not tEventArgs.unitTarget or not tEventArgs.unitCaster then
+		gLog:error(string.format("OnCLHeal: nil unitTarget or caster, caster[%d] %s, target [%d] %s",
+			self:GetUnitId(tEventArgs.unitCaster), self:HelperGetNameElseUnknown(tEventArgs.unitCaster),
+			self:GetUnitId(tEventArgs.unitTarget), self:HelperGetNameElseUnknown(tEventArgs.unitTarget)))
+		return
+	end
 
-	if tEvent.nTypeId and tEvent.nTypeId > 0 and tEvent.nDamage then
+	if tEvent.nDamage then
 
-		self:AssignPlayerInfo(tEvent, tEventArgs)
+		self:ProcessHeal(tEvent, tEventArgs)
+	else
+		gLog:error("OnCLHeal: Something went wrong!  Invalid type Id!")
+	end
+end
+
+
+-- Used by both OnCombatLogHeal and OnCombatLogTransference
+function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
+	local bSourceIsPlayerOrPet = self:IsPlayerOrPlayerPet(tEventArgs.unitCaster)
+	local bTargetIsPlayerOrPet = self:IsPlayerOrPlayerPet(tEventArgs.unitTarget)
+
+	if bSourceIsPlayerOrPet then
+
+		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingOut
+		tEvent.PlayerName = tEvent.strCaster
+		tEvent.PlayerId = tEvent.nCasterId
+		tEvent.ClassId = tEvent.nCasterId
 
 		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
 
 		self:UpdateSpell(tEvent, player)
 
 		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
-	else
-		gLog:error("OnCLHeal: Something went wrong!  Invalid type Id!")
-		return
 	end
+
+
+	if bTargetIsPlayerOrPet then
+
+		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingIn
+		tEvent.PlayerName = tEvent.strTarget
+		tEvent.PlayerId = tEvent.nTargetId
+		tEvent.ClassId = tEvent.nTargetId
+
+		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
+
+		self:UpdateSpell(tEvent, player)
+
+		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
+	end
+
 end
 
 
@@ -1349,23 +1393,39 @@ function GalaxyMeter:ShouldThrowAwayDamageEvent(unitCaster, unitTarget)
 	return false
 end
 
-
+--[[
 -- Determine the type of heal based on the caster and target
 function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
 
-	if not unitTarget or not unitCaster then
-		gLog:error(string.format("GetHealEventType() nil unitTarget or caster, caster[%d] %s",
-			self:GetUnitId(unitCaster), self:HelperGetNameElseUnknown(unitCaster)))
-		return 0
+	local bSourceIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitCaster)
+	local bTargetIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitTarget)
+
+	-- source player or pet	&& target mob or pet	=> heal out
+	-- source player or pet	&& target player or pet => heal out
+	-- source mob or pet		&& target mob or pet	=> mob dmg in/out (ignore)
+
+	if bSourceIsPlayerOrPet then
+
+		-- Check for player self healing
+		if bTargetIsPlayerOrPet and unitTarget:GetId() == unitCaster:GetId() then
+			return GalaxyMeter.eTypeDamageOrHealing.HealingInOut
+		end
+
+		return GalaxyMeter.eTypeDamageOrHealing.HealingOut
+
+	else
+
 	end
 
-	if unitTarget:IsACharacter() then
-		-- Self damage
+	if bTargetIsPlayerOrPet then
+		-- Target of the heal is a player or player pet
+
+		-- Self damage, caster is the target as well
 		if unitCaster:IsACharacter() and unitTarget:GetId() == unitCaster:GetId() then
 			return GalaxyMeter.eTypeDamageOrHealing.HealingInOut
 		end
 
-		return GalaxyMeter.eTypeDamageOrHealing.HealingIn
+		return GalaxyMeter.eTypeDamageOrHealing.HealingOut
 	else
 		-- Target is not a player
 		if unitCaster:IsACharacter() then
@@ -1383,29 +1443,8 @@ function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
 		return 0
 	end
 
-	--[[
-	local selfId = self.unitPlayer:GetId()
-
-    if unitCaster:GetId() == selfId then
-
-        if unitTarget:GetId() == selfId then
-            return eTypeDamageOrHealing.PlayerHealingInOut
-        end
-
-        return eTypeDamageOrHealing.PlayerHealingOut
-
-    elseif unitTarget:GetId() == selfId then
-        return eTypeDamageOrHealing.PlayerHealingIn
-
-    else
-        -- It's possible for your pet to heal other people?!
-
-        gLog:warn(string.format("Unknown Heal - Caster: %s, Target: %s", self:HelperGetNameElseUnknown(unitCaster), self:HelperGetNameElseUnknown(unitTarget)))
-
-        return eTypeDamageOrHealing.PlayerHealingOut
-	end
-	--]]
 end
+--]]
 
 
 
@@ -1674,6 +1713,7 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
     local spell = nil
 
     -- Player tally and spell type
+	--[[
 	if tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.HealingInOut then
 
         -- Special handling for self healing, we want to count this as both healing done and received
@@ -1697,7 +1737,9 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
 
 		self.bDirty = true
 
-    elseif tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.HealingOut then
+	else
+	--]]
+	if tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.HealingOut then
 
 		local nEffective = nAmount - tEvent.nOverheal
 
