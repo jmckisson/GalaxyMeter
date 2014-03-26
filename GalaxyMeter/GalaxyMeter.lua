@@ -539,9 +539,22 @@ function GalaxyMeter:OnPulse()
 
 	-- Check if the rest of the group is out of combat
 	if self.tCurrentLog.start > 0 then
-		if not self:GroupInCombat() --[[and not self.bInCombat--]] then
-			gLog:info("OnPulse pushing combat segment")
-			self:PushLogSegment()
+		if not self:GroupInCombat() then
+			if self.tCurrentLog.combat_length > 10 then
+				gLog:info("OnPulse: pushing combat segment")
+				self:PushLogSegment()
+			else
+				gLog:info("OnPulse: short segment, clearing")
+				self.timerDisplay:Stop()
+				self.timerTimer:Stop()
+				self.tCurrentLog.name = "Current"
+				self.tCurrentLog.start = 0
+				self.tCurrentLog.combat_length = 0
+				self.tCurrentLog.players = {}
+				self.tCurrentLog.mobs = {}
+				self.Children.TimeText:SetText(self:SecondsToString(0))
+				self:RefreshDisplay()
+			end
 		else
 			--gLog:info("OnPlayerCheckTimer - Not pushing segment, group in combat")
 		end
@@ -589,7 +602,7 @@ function GalaxyMeter:OnUnitCreated(unit)
 	if unit and unit:GetUnitOwner() then
 		if unit:GetUnitOwner():IsThePlayer() then
 			self.bPetAffectingCombat = true
-			gLog:info("bPetAffectingCombat true")
+			--gLog:info("bPetAffectingCombat true")
 		end
 	end
 
@@ -600,7 +613,7 @@ function GalaxyMeter:OnUnitDestroyed(unit)
 
 	if unit and unit:GetUnitOwner() and unit:GetUnitOwner():IsThePlayer() then
 		self.bPetAffectingCombat = false
-		gLog:info("bPetAffectingCombat false")
+		--gLog:info("bPetAffectingCombat false")
 	end
 
 end
@@ -624,7 +637,10 @@ function GalaxyMeter:GroupInCombat()
 	local nMemberCount = GroupLib.GetMemberCount()
 	if nMemberCount == 0 then
 
-		--gLog:info("GroupInCombat: returning  " .. tostring(bSelfInCombat))
+		--gLog:info(string.format("GroupInCombat: self %s, pet %s, returning %s",
+		--	tostring(GameLib.GetPlayerUnit():IsInCombat()), tostring(self.bPetAffectingCombat), tostring(bSelfInCombat)))
+
+		self.bGroupInCombat = bSelfInCombat
 		return bSelfInCombat
 	end
 
@@ -640,10 +656,6 @@ function GalaxyMeter:GroupInCombat()
 	end
 
 	self.bGroupInCombat = bCombat
-
-	if not bCombat then
-		self.bNeedNewLog = true
-	end
 	
 	return bCombat
 end
@@ -674,7 +686,7 @@ end
 
 function GalaxyMeter:TryStartSegment(tEvent, unitTarget)
 	-- Should we trigger a new log segment?
-	if self.bNeedNewLog then
+	if self.tCurrentLog.start == 0 and unitTarget:GetType() ~= "Harvest" then
 		self:StartLogSegment()
 
 		if not unitTarget:IsACharacter() then
@@ -687,7 +699,7 @@ function GalaxyMeter:TryStartSegment(tEvent, unitTarget)
 				self.tCurrentLog.name = "Unknown"
 			end
 		end
-		gLog:info(string.format("OnCLDamage: Set activeLog.name to %s", self.tCurrentLog.name))
+		gLog:info(string.format("OnCLDamage: Set activeLog.name to %s, targetType %s", self.tCurrentLog.name, unitTarget:GetType()))
 	end
 end
 
@@ -749,7 +761,9 @@ function GalaxyMeter:PushLogSegment()
 
 	-- Save player active times
 	for k, player in pairs(self.tCurrentLog.players) do
-		player.timeActive = player.lastAction - player.firstAction
+		if player.lastAction then
+			player.timeActive = player.lastAction - player.firstAction
+		end
 	end
 
 	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
@@ -2581,7 +2595,7 @@ function GalaxyMeter:OnClearAll()
 		tModeLast = {}
 	}
 	self.Children.EncounterText:SetText(self.vars.tLogDisplay.name)
-	self.Children.TimeText:SetText(self:SecondsToString(self:GetLogDisplayTimer()))
+	self.Children.TimeText:SetText(self:SecondsToString(0))
 	self:RefreshDisplay()
 end
 
