@@ -760,11 +760,13 @@ function GalaxyMeter:PushLogSegment()
 	self.timerTimer:Stop()
 
 	-- Save player active times
+	--[[
 	for k, player in pairs(self.tCurrentLog.players) do
 		if player.lastAction then
 			player.timeActive = player.lastAction - player.firstAction
 		end
 	end
+	--]]
 
 	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
 
@@ -773,7 +775,7 @@ end
 
 
 --[[
--- Gets activity time for an actor in a log segment
+-- Get activity time for an actor in a log segment
  ]]
 function GalaxyMeter:GetActiveTime(tLog, tActor)
 	local nTimeTotal = 0
@@ -787,7 +789,12 @@ function GalaxyMeter:GetActiveTime(tLog, tActor)
 
 	-- Add in-progress time if set is not ended.
 	if not tLog.stop and tActor.firstAction then
-		nTimeTotal = nTimeTotal + tActor.lastAction - tActor.firstAction
+		nTimeTotal = tActor.lastAction - tActor.firstAction
+	end
+
+	if nTimeTotal == 1 or nTimeTotal == 0 then
+		Event_FireGenericEvent("SendVarToRover", "GetActiveTime", {self=self, tLog=tLog, tActor=tActor, nTimeTotal=nTimeTotal, wnTimeTotalCalc=(tActor.lastAction - tActor.firstAction)})
+		--self:Rover("GetActiveTime", {self=self, tLog=tLog, tActor=tActor})
 	end
 
 	return math.max(1, nTimeTotal)
@@ -1232,10 +1239,8 @@ end
 
 -- Used by both OnCombatLogHeal and OnCombatLogTransference
 function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
-	local bSourceIsPlayerOrPet = self:IsPlayerOrPlayerPet(tEventArgs.unitCaster)
-	local bTargetIsPlayerOrPet = self:IsPlayerOrPlayerPet(tEventArgs.unitTarget)
 
-	if bSourceIsPlayerOrPet then
+	if tEvent.bCasterIsPlayer then
 
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingOut
 		tEvent.PlayerName = tEvent.strCaster
@@ -1249,8 +1254,7 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
 	end
 
-
-	if bTargetIsPlayerOrPet then
+	if tEvent.bTargetIsPlayer then
 
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingIn
 		tEvent.PlayerName = tEvent.strTarget
@@ -1267,6 +1271,10 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 end
 
 
+--[[
+-- Sets up an event object with name, id, class etc of the caster and target.
+-- If the caster is a pet then strCaster/Id/Class are set to its owner
+ ]]
 function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 	local tInfo = {
 		strCaster = nil,
@@ -1281,6 +1289,7 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 		nTargetId = nil,
 		unitCaster = tEventArgs.unitCaster,
 		unitTarget = tEventArgs.unitTarget,
+		bSourcePet = false,
 	}
 
 	if bSpell then
@@ -1302,6 +1311,7 @@ function GalaxyMeter:HelperCasterTargetSpell(tEventArgs, bTarget, bSpell)
 
 		if tEventArgs.unitCasterOwner and tEventArgs.unitCasterOwner:IsACharacter() then
 			-- Caster is a pet, assign caster to the owners name
+			tInfo.bSourcePet = true
 
 			tInfo.strSpellName = ("%s: %s"):format(tEventArgs.unitCaster:GetName(), tInfo.strSpellName)
 
@@ -1407,69 +1417,17 @@ function GalaxyMeter:ShouldThrowAwayDamageEvent(unitCaster, unitTarget)
 	return false
 end
 
+
 --[[
--- Determine the type of heal based on the caster and target
-function GalaxyMeter:GetHealEventType(unitCaster, unitTarget)
-
-	local bSourceIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitCaster)
-	local bTargetIsPlayerOrPet = self:IsPlayerOrPlayerPet(unitTarget)
-
-	-- source player or pet	&& target mob or pet	=> heal out
-	-- source player or pet	&& target player or pet => heal out
-	-- source mob or pet		&& target mob or pet	=> mob dmg in/out (ignore)
-
-	if bSourceIsPlayerOrPet then
-
-		-- Check for player self healing
-		if bTargetIsPlayerOrPet and unitTarget:GetId() == unitCaster:GetId() then
-			return GalaxyMeter.eTypeDamageOrHealing.HealingInOut
-		end
-
-		return GalaxyMeter.eTypeDamageOrHealing.HealingOut
-
-	else
-
-	end
-
-	if bTargetIsPlayerOrPet then
-		-- Target of the heal is a player or player pet
-
-		-- Self damage, caster is the target as well
-		if unitCaster:IsACharacter() and unitTarget:GetId() == unitCaster:GetId() then
-			return GalaxyMeter.eTypeDamageOrHealing.HealingInOut
-		end
-
-		return GalaxyMeter.eTypeDamageOrHealing.HealingOut
-	else
-		-- Target is not a player
-		if unitCaster:IsACharacter() then
-			return GalaxyMeter.eTypeDamageOrHealing.HealingOut
-		end
-
-		-- Ok so the dmg might be from a pet
-		if unitCaster:GetUnitOwner() and unitCaster:GetUnitOwner():IsACharacter() then
-			-- This is being set when the caster is not yourself
-
-			return GalaxyMeter.eTypeDamageOrHealing.HealingOut
-		end
-
-		gLog:error("Unknown heal type")
-		return 0
-	end
-
-end
---]]
-
-
-
+-- @return {true if unit is player OR pet, true only if unit is a player pet}
+ ]]
 function GalaxyMeter:IsPlayerOrPlayerPet(unit)
-	if not unit then return false end
+	if not unit then return false, false end
 
-	if unit:IsACharacter() or (unit:GetUnitOwner() and unit:GetUnitOwner():IsACharacter()) then
-		return true
-	end
+	local bIsPlayer = unit:IsACharacter()
+	local bIsPet = unit:GetUnitOwner() and unit:GetUnitOwner():IsACharacter()
 
-	return false
+	return (bIsPlayer or bIsPet), bIsPet
 end
 
 
@@ -1787,6 +1745,13 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
 
         self:TallySpellAmount(tEvent, spellOut)
         self:TallySpellAmount(tEvent, spellIn)
+
+		local timeNow = os.clock()
+
+		if not actor.firstAction then
+			actor.firstAction = timeNow
+		end
+		actor.lastAction = timeNow
 
 		self.bDirty = true
 
@@ -2124,7 +2089,7 @@ function GalaxyMeter:GetOverallList()
 	-- Grab segment type from mode: players/mobs/etc
 	local tSegmentType = tLogSegment[mode.segType]
 
-	local nTime = self:GetLogDisplayTimer()
+	local nTime = tLogSegment.combat_length
 
 	-- Get total and max
 	local nMax = 0
@@ -2148,6 +2113,16 @@ function GalaxyMeter:GetOverallList()
 			local nAmount = tActor[mode.type]
 
 			local nActorTime = self:GetActiveTime(tLogSegment, tActor)
+
+			if nActorTime == 1 then
+				Event_FireGenericEvent("SendVarToRover", "tActorInOverall", {
+					self = self,
+					tLog = tLogSegment,
+					tActor = tActor,
+					activeCalc = (tActor.lastAction - tActor.firstAction)
+				})
+				nActorTime = nTime
+			end
 
 			table.insert(tList, {
 				n = tActor.strName,
