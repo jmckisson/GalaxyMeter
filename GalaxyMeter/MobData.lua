@@ -126,24 +126,27 @@ end
 --[[
 - @param m GalaxyMeter, this was passed in by GetOverallList
  ]]
-function MobData:MenuActorSelection(m, nActorId)
+function MobData:MenuActorSelection(m, tActor)
 
 	--GM:Rover("MobDataActorSelection", {m=m, self=self, nActorId=nActorId})
 
+	--[[
 	local actor = GM:FindMob(GM:GetLogDisplay(), nActorId)
 
 	if not actor then
 		GM.Log:info("cant find actor " .. nActorId .. " in MenuActorSelection")
 		return
 	end
+	--]]
 
 	local mode = GM:GetCurrentMode()
 
-	GM:LogActorId(nActorId)
+	GM:LogActorId(tActor.id)
+	GM:LogActor(tActor)
 	GM:LogType(mode.type)
-	GM:LogActorName(actor.strName)
+	GM:LogActorName(tActor.strName)
 
-	GM.Log:info(string.format("MenuActorSelection: %s -> %s", actor.strName, mode.type))
+	GM.Log:info(string.format("MenuActorSelection: %s -> %s", tActor.strName, mode.type))
 
 	GM:LogModeType(GM.tListFromSubType[mode.type])	-- Save this because as we delve deeper into menus the type isn't necessarily set
 
