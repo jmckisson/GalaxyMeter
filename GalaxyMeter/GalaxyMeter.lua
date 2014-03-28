@@ -780,21 +780,28 @@ end
 function GalaxyMeter:GetActiveTime(tLog, tActor)
 	local nTimeTotal = 0
 
-	-- Add recorded time (for total set)
+	-- Why do we care if the segment has ended or not?
+
+	-- Set time for already ended segment
 	--[[
 	if tActor.timeActive then
 		nTimeTotal = tActor.timeActive
 	end
-	--]]
 
 	-- Add in-progress time if set is not ended.
 	if not tLog.stop and tActor.firstAction then
+		nTimeTotal = nTimeTotal + tActor.lastAction - tActor.firstAction
+	else
+		nTimeTotal = tActor.timeActive
+	end
+	--]]
+
+	if tActor.firstAction then
 		nTimeTotal = tActor.lastAction - tActor.firstAction
 	end
 
 	if nTimeTotal == 1 or nTimeTotal == 0 then
-		Event_FireGenericEvent("SendVarToRover", "GetActiveTime", {self=self, tLog=tLog, tActor=tActor, nTimeTotal=nTimeTotal, wnTimeTotalCalc=(tActor.lastAction - tActor.firstAction)})
-		--self:Rover("GetActiveTime", {self=self, tLog=tLog, tActor=tActor})
+		Event_FireGenericEvent("SendVarToRover", "GetActiveTime", {self=self, tActor=tActor, nTimeTotal=nTimeTotal, wnTimeTotalCalc=(tActor.lastAction - tActor.firstAction)})
 	end
 
 	return math.max(1, nTimeTotal)
@@ -1413,6 +1420,8 @@ function GalaxyMeter:ShouldThrowAwayDamageEvent(unitCaster, unitTarget)
         -- Keep events with no unitCaster for now because they may still be determined useful
 
 	end
+
+	-- Pets still sometimes return a nil unitTarget?
 
 	return false
 end
