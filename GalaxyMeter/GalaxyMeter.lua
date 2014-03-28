@@ -2720,6 +2720,7 @@ function GalaxyMeter:MenuUnitDetailSelection(tActor)
 
 	self:Rover("MenuUnitDetailSelection", {vars=self.vars})
 
+	self:LogActorId(tActor.id)
 	self:LogActor(tActor)
 	self:LogActorName(tActor.strName)
 	self:LogType(mode.type)	-- damaged/By healed/healedBy
