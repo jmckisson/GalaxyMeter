@@ -80,10 +80,14 @@ function Deaths:MenuPlayerDeathSelection(m, tActor)
 
 	local mode = GM:GetCurrentMode()
 
-	--GM.LogType(mode.type)
-	--GM.LogActor(tActor)
+	--GM:LogActorId(tActor.id)
+	--GM:LogActor(tActor)
+	--GM:LogType(mode.type)
 
-	GM.Log:info(string.format("MenuPlayerDeathSelection: %s -> %s", tActor.strName, mode.type))
+	GM.Log:info(string.format("MenuPlayerDeathSelection: %s", tActor.strName))
+
+
+	self:PrintPlayerDeath(tActor)
 
 	--GM:LogModeType(GM.tListFromSubType[mode.type])
 
@@ -125,7 +129,7 @@ function Deaths:GetDeathsList()
 				progress = 1,
 				click = function(_, btn)
 					if btn == 0 and mode.next then
-						mode.next(tActor)
+						mode.next(self, tActor)	--> self.MenuPlayerDeathSelection
 					elseif btn == 1 then
 						mode.prev(GM)
 					end
