@@ -36,7 +36,7 @@ function Deaths:Init()
 
 	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
 	Apollo.RegisterEventHandler("GalaxyMeterLogDamage",				"OnGalaxyMeterLogDamage", self)
-	Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
+	--Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
 	--Apollo.RegisterEventHandler("CombatLogDeflect",					"OnCombatLogDeflect", self)
 	--Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
 	--Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
@@ -71,19 +71,23 @@ end
 --[[
 - @param m GalaxyMeter, this was passed in by GetOverallList
 --]]
-function Deaths:MenuPlayerDeathSelection(m, tActor)
+function Deaths:MenuPlayerDeathSelection(tActor)
 
 	if not tActor then
-		GM.Log:info("cant find actor " .. tActor.strName .. " in MenuActorSelection")
+		GM.Log:info("cant find actor in MenuActorSelection")
 		return
 	end
 
 	local mode = GM:GetCurrentMode()
 
+	--GM:LogActorId(tActor.id)
+	--GM:LogActor(tActor)
 	--GM:LogType(mode.type)
-	--GM:LogActorName(tActor.strName)
 
-	GM.Log:info(string.format("MenuPlayerDeathSelection: %s -> %s", tActor.strName, mode.type))
+	GM.Log:info(string.format("MenuPlayerDeathSelection: %s", tActor.strName))
+
+
+	self:PrintPlayerDeath(tActor)
 
 	--GM:LogModeType(GM.tListFromSubType[mode.type])
 
@@ -107,10 +111,10 @@ function Deaths:GetDeathsList()
 
 	local nTotalDeaths = 0
 
-	for k, v in pairs(tLogActors) do
+	for k, tActor in pairs(tLogActors) do
 
 		-- Get all deaths for this actor
-		local tDeaths = v.deaths or {}
+		local tDeaths = tActor.deaths or {}
 		local nDeaths = #tDeaths
 
 		if nDeaths > 0 then
@@ -125,7 +129,7 @@ function Deaths:GetDeathsList()
 				progress = 1,
 				click = function(_, btn)
 					if btn == 0 and mode.next then
-						mode.next(GM, k)
+						mode.next(Deaths, tActor)	--> self.MenuPlayerDeathSelection
 					elseif btn == 1 then
 						mode.prev(GM)
 					end
@@ -147,27 +151,20 @@ function Deaths:GetDeathsList()
 end
 
 
+function Deaths:PrintPlayerDeath(tActor)
 
+	if tActor.deaths then
 
-function Deaths:PrintPlayerDeath()
-	-- Find player log
-	local strPlayerName = self.vars.strCurrentPlayerName
-
-	if strPlayerName == nil or strPlayerName == "" then
-		GM.Log:info("PrintPlayerDeath nil player")
-		return
-	end
-
-	local tPlayerLog = self:GetPlayer(self.vars.tLogDisplay, {PlayerName=strPlayerName})
-
-	if tPlayerLog.deaths then
-
-		local log = tPlayerLog.deaths[#tPlayerLog.deaths].log
+		local log = tActor.deaths[#tActor.deaths].log
 
 		if log.last < log.first then return end
 
+		local strReportChannel = GM:ReportChannel()
+
+		ChatSystemLib.Command(string.format("/%s Death log for %s:", strReportChannel, tActor.strName))
+
 		for i = log.first, log.last do
-			ChatSystemLib.Command(string.format("/2 %s:: %s", log[i].strTime, log[i].strMessage))
+			ChatSystemLib.Command(string.format("/%s %s:: %s", strReportChannel, log[i].strTime, log[i].strMessage))
 		end
 	end
 end
@@ -276,11 +273,11 @@ function Deaths:OnCombatLogDelayDeath(tEventArgs)
 end
 
 
-function Deaths:AddPlayerDeath(tEventArgs)
+function Deaths:AddPlayerDeath(unitPlayer)
 
-	if tEventArgs.unitCaster:IsACharacter() then
+	if unitPlayer:IsACharacter() then
 
-		local strName = tEventArgs.unitCaster:GetName()
+		local strName = unitPlayer:GetName()
 
 		local tPlayerLog = GM:GetPlayer(GM:GetLog().players, {PlayerName=strName})
 
@@ -300,6 +297,8 @@ function Deaths:AddPlayerDeath(tEventArgs)
 			GM.Log:warn(strName .. " died without entries in combat log!")
 		end
 
+	else
+		GM.Log:warn("unitPlayer not a player!")
 	end
 end
 
@@ -315,16 +314,11 @@ function Deaths:OnCombatLogDeath(tEventArgs)
 	if not tEventArgs.unitCaster then return end
 
 	self:AddPlayerDeath(tEventArgs)
-
-
 end
 
 
 function Deaths:OnGalaxyMeterLogDamage(tEvent)
 	-- Example Combat Log Message: 17:18: Alvin uses Mind Stab on Space Pirate for 250 Magic damage (Critical).
-	--local tTextInfo = GM:HelperCasterTargetSpell(tEventArgs, true, true)
-
-	--if not tTextInfo then return end
 
 	-- System treats environment damage as coming from the player
 	local bEnvironmentDmg = tEvent.strCaster == tEvent.strTarget
@@ -362,15 +356,15 @@ function Deaths:OnGalaxyMeterLogDamage(tEvent)
 	end
 
 	if tEvent.nShield and tEvent.nShield > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tEvent.strResult, tEvent.nShield)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tEvent.strResult, tostring(tEvent.nShield))
 	end
 
 	if tEvent.nAbsorption and tEvent.nAbsorption > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tEvent.strResult, tEvent.nAbsorption)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tEvent.strResult, tostring(tEvent.nAbsorption))
 	end
 
 	if tEvent.nOverkill and tEvent.nOverkill > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tEvent.strResult, tEvent.nOverkill)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tEvent.strResult, tostring(tEvent.nOverkill))
 	end
 
 	if tEvent.bTargetVulnerable then
@@ -386,6 +380,10 @@ function Deaths:OnGalaxyMeterLogDamage(tEvent)
 	if tEvent.bTargetKilled then
 		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_TargetKilled"), tEvent.strCaster, tEvent.strTarget)
 		self:AddLogEntry(tEvent)
+
+		if tEvent.unitTarget:IsACharacter() then
+			self:AddPlayerDeath(tEvent.unitTarget)
+		end
 	end
 
 end
@@ -400,11 +398,7 @@ function Deaths:OnCombatLogFallingDamage(tEventArgs)
 end
 
 
-function Deaths:OnCombatLogHeal(tEvent)
-
-	--local tStr = {}
-
-	--table.insert(tStr, )
+function Deaths:OnGalaxyMeterLogHeal(tEvent)
 
 	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 
@@ -414,17 +408,15 @@ function Deaths:OnCombatLogHeal(tEvent)
 	else
 		strHealType = Apollo.GetString("CombatLog_HealHealth")
 	end
-	tEvent.strResult = String_GetWeaselString(strHealType, tEvent.strResult, tEvent.nHealAmount)
+	tEvent.strResult = String_GetWeaselString(strHealType, tEvent.strResult, tostring(tEvent.nHealAmount))
 
 	if tEvent.nOverheal and tEvent.nOverheal > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tEvent.strResult, tEvent.nOverheal)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tEvent.strResult, tostring(tEvent.nOverheal))
 	end
 
 	if tEvent.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
 		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Critical"), tEvent.strResult)
 	end
-
-	--tEvent.strResult = table.concat(tStr)
 
 	self:AddLogEntry(tEvent)
 end

@@ -1187,7 +1187,7 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 	self:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
-	if tEvent.nTypeId > 0 and tEvent.nDamage then
+	if tEvent.nTypeId > 0 then
 
 		self:AssignPlayerInfo(tEvent, tEventArgs)
 
@@ -1683,7 +1683,7 @@ end
 
 function GalaxyMeter:UpdateSpell(tEvent, actor)
     local strSpellName = tEvent.strSpellName
-    local nAmount = tEvent.nDamage
+    local nAmount = tEvent.nDamage or 0
 
 	if not nAmount and not tEvent.bDeflect then
 		gLog:error("UpdateSpell: nAmount is nil, spell: " .. strSpellName)
