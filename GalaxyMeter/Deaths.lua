@@ -71,10 +71,10 @@ end
 --[[
 - @param m GalaxyMeter, this was passed in by GetOverallList
 --]]
-function Deaths:MenuPlayerDeathSelection(m, tActor)
+function Deaths:MenuPlayerDeathSelection(tActor)
 
 	if not tActor then
-		GM.Log:info("cant find actor " .. tActor.strName .. " in MenuActorSelection")
+		GM.Log:info("cant find actor in MenuActorSelection")
 		return
 	end
 
@@ -129,7 +129,7 @@ function Deaths:GetDeathsList()
 				progress = 1,
 				click = function(_, btn)
 					if btn == 0 and mode.next then
-						mode.next(self, tActor)	--> self.MenuPlayerDeathSelection
+						mode.next(Deaths, tActor)	--> self.MenuPlayerDeathSelection
 					elseif btn == 1 then
 						mode.prev(GM)
 					end
@@ -354,15 +354,15 @@ function Deaths:OnGalaxyMeterLogDamage(tEvent)
 	end
 
 	if tEvent.nShield and tEvent.nShield > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tEvent.strResult, tEvent.nShield)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageShielded"), tEvent.strResult, tostring(tEvent.nShield))
 	end
 
 	if tEvent.nAbsorption and tEvent.nAbsorption > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tEvent.strResult, tEvent.nAbsorption)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageAbsorbed"), tEvent.strResult, tostring(tEvent.nAbsorption))
 	end
 
 	if tEvent.nOverkill and tEvent.nOverkill > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tEvent.strResult, tEvent.nOverkill)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_DamageOverkill"), tEvent.strResult, tostring(tEvent.nOverkill))
 	end
 
 	if tEvent.bTargetVulnerable then
@@ -396,7 +396,7 @@ function Deaths:OnCombatLogFallingDamage(tEventArgs)
 end
 
 
-function Deaths:OnCombatLogHeal(tEvent)
+function Deaths:OnGalaxyMeterLogHeal(tEvent)
 
 	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 
@@ -406,10 +406,10 @@ function Deaths:OnCombatLogHeal(tEvent)
 	else
 		strHealType = Apollo.GetString("CombatLog_HealHealth")
 	end
-	tEvent.strResult = String_GetWeaselString(strHealType, tEvent.strResult, tEvent.nHealAmount)
+	tEvent.strResult = String_GetWeaselString(strHealType, tEvent.strResult, tostring(tEvent.nHealAmount))
 
 	if tEvent.nOverheal and tEvent.nOverheal > 0 then
-		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tEvent.strResult, tEvent.nOverheal)
+		tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Overheal"), tEvent.strResult, tostring(tEvent.nOverheal))
 	end
 
 	if tEvent.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
