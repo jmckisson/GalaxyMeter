@@ -456,6 +456,7 @@ function GalaxyMeter:OnLoad()
 
 	self.vars.tLogDisplay = self.log[1]
 
+	self.Deaths:Init()
 	self.MobData:Init()
 
 	gLog:info("OnLoad()")
@@ -844,10 +845,7 @@ end
 -- on SlashCommand "/lkm"
 function GalaxyMeter:OnGalaxyMeterOn(strCmd, strArg)
 
-	if strArg == "deaths" then
-		self.Deaths:Init()
-
-	elseif strArg == "debug" then
+	if strArg == "debug" then
 		self.settings.bDebug = not self.settings.bDebug
 		gLog:info("bDebug = " .. tostring(self.settings.bDebug))
 
