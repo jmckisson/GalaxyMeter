@@ -36,7 +36,7 @@ function Deaths:Init()
 
 	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
 	Apollo.RegisterEventHandler("GalaxyMeterLogDamage",				"OnGalaxyMeterLogDamage", self)
-	Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
+	--Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
 	--Apollo.RegisterEventHandler("CombatLogDeflect",					"OnCombatLogDeflect", self)
 	--Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
 	--Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
@@ -159,10 +159,12 @@ function Deaths:PrintPlayerDeath(tActor)
 
 		if log.last < log.first then return end
 
-		GM.Log:info(string.format("Death log for %s:", tActor.strName))
+		local strReportChannel = GM:ReportChannel()
+
+		ChatSystemLib.Command(string.format("/%s Death log for %s:", strReportChannel, tActor.strName))
 
 		for i = log.first, log.last do
-			GM.Log:info(string.format("%s:: %s", log[i].strTime, log[i].strMessage))
+			ChatSystemLib.Command(string.format("/%s %s:: %s", strReportChannel, log[i].strTime, log[i].strMessage))
 		end
 	end
 end
