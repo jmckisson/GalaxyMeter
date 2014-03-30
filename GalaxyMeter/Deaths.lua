@@ -19,6 +19,7 @@ local Deaths = {
 	},
 }
 
+--[[
 function Deaths:new(o)
 	o = o or {}
 	setmetatable(o, self)
@@ -26,7 +27,7 @@ function Deaths:new(o)
 
 	return o
 end
-
+--]]
 
 function Deaths:Init()
 
@@ -34,15 +35,15 @@ function Deaths:Init()
 	Apollo.SetConsoleVariable("cmbtlog.disableDelayDeath", false)
 	Apollo.SetConsoleVariable("cmbtlog.disableDeath", false)
 
-	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
-	Apollo.RegisterEventHandler("GalaxyMeterLogDamage",				"OnGalaxyMeterLogDamage", self)
+	Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
+	Apollo.RegisterEventHandler(GM.kEventDamage,					"OnDamage", self)
 	--Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
-	--Apollo.RegisterEventHandler("CombatLogDeflect",					"OnCombatLogDeflect", self)
+	Apollo.RegisterEventHandler(GM.kEventDeflect,					"OnDeflect", self)
 	--Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
 	--Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
 	--Apollo.RegisterEventHandler("CombatLogFallingDamage",			"OnCombatLogFallingDamage", self)
-	Apollo.RegisterEventHandler("GalaxyMetertLogHeal",					"OnGalaxyMeterLogHeal", self)
-	--Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
+	Apollo.RegisterEventHandler(GM.kEventHeal,						"OnHeal", self)
+	Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
 
 
 	GM:AddMenu("Player Deaths", {
@@ -251,7 +252,7 @@ function Deaths:OnCombatLogAbsorption(tEventArgs)
 	if not tCastInfo then return end
 
 	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tCastInfo.strCaster, tCastInfo.strSpellName, tCastInfo.strTarget)
-	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_GrantAbsorption"), tCastInfo.strResult, tEventArgs.nAmount)
+	tCastInfo.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_GrantAbsorption"), tCastInfo.strResult, tostring(tEventArgs.nAmount))
 
 	if tEventArgs.eCombatResult == GameLib.CodeEnumCombatResult.Critical then
 		--self:PostOnChannel("Absorption")
@@ -317,7 +318,7 @@ function Deaths:OnCombatLogDeath(tEventArgs)
 end
 
 
-function Deaths:OnGalaxyMeterLogDamage(tEvent)
+function Deaths:OnDamage(tEvent)
 	-- Example Combat Log Message: 17:18: Alvin uses Mind Stab on Space Pirate for 250 Magic damage (Critical).
 
 	-- System treats environment damage as coming from the player
@@ -398,7 +399,9 @@ function Deaths:OnCombatLogFallingDamage(tEventArgs)
 end
 
 
-function Deaths:OnGalaxyMeterLogHeal(tEvent)
+function Deaths:OnHeal(tEvent)
+
+	GM:Rover("GMLogHeal", {tEvent=tEvent})
 
 	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 
@@ -422,7 +425,7 @@ function Deaths:OnGalaxyMeterLogHeal(tEvent)
 end
 
 
-function Deaths:OnCombatLogDeflect(tEvent)
+function Deaths:OnDeflect(tEvent)
 
 	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_BaseSkillUse"), tEvent.strCaster, tEvent.strSpellName, tEvent.strTarget)
 	tEvent.strResult = String_GetWeaselString(Apollo.GetString("CombatLog_Deflect"), tEvent.strResult)
@@ -471,4 +474,4 @@ function Deaths:OnCombatLogDispel(tEventArgs)
 end
 
 
-GM.Deaths = Deaths:new()
+GM.Deaths = Deaths

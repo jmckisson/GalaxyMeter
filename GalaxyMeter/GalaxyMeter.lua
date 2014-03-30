@@ -60,7 +60,10 @@ local GalaxyMeter = {
 		["damagedBy"] = "Damage Taken",
 		["healed"] = "Healing Done",
 		["healedby"] = "Healing Taken",
-	}
+	},
+	kEventDamage = "GalaxyMeterDamage",
+	kEventDeflect = "GalaxyMeterDeflect",
+	kEventHeal = "GalaxyMeterHeal",
 }
 
 local gLog
@@ -1147,6 +1150,8 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 
 	local player = self:GetPlayer(activeLog, tEvent)
 	self:UpdateSpell(tEvent, player)
+
+	Event_FireGenericEvent(GalaxyMeter.kEventDeflect, tEvent)
 end
 
 
@@ -1193,7 +1198,7 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 		self:UpdateSpell(tEvent, player)
 
-		Event_FireGenericEvent("GalaxyMeterLogDamage", tEvent)
+		Event_FireGenericEvent(GalaxyMeter.kEventDamage, tEvent)
 
 	else
 		gLog:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
@@ -1256,7 +1261,7 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 
 		self:UpdateSpell(tEvent, player)
 
-		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
+		Event_FireGenericEvent(GalaxyMeter.kEventHeal, tEvent)
 	end
 
 	if tEvent.bTargetIsPlayer then
@@ -1270,7 +1275,7 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 
 		self:UpdateSpell(tEvent, player)
 
-		Event_FireGenericEvent("GalaxyMeterLogHeal", tEvent)
+		Event_FireGenericEvent(GalaxyMeter.kEventHeal, tEvent)
 	end
 
 end
