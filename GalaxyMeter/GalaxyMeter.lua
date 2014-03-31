@@ -105,7 +105,7 @@ function GalaxyMeter:OnLoad()
 	local GeminiLogging = Apollo.GetPackage("GeminiLogging-1.1").tPackage
 
 	gLog = GeminiLogging:GetLogger({
-		level = GeminiLogging.INFO,
+		level = GeminiLogging.FATAL,
 		pattern = "[%d] %n [%c:%l] - %m",
 		appender = "GeminiConsole"
 	})
@@ -513,6 +513,7 @@ function GalaxyMeter:OnPulse()
 	end
 
 	-- Stupid hack to properly set class ids instead of thru unit objects from combat log events
+
 	if self.vars.tLogDisplay then
 
 		local nMemberCount = GroupLib.GetMemberCount()
@@ -539,6 +540,7 @@ function GalaxyMeter:OnPulse()
 			end
 		end
 	end
+
 
 
 	-- Check if the rest of the group is out of combat
@@ -664,7 +666,8 @@ function GalaxyMeter:GroupInCombat()
 	return bCombat
 end
 
-	
+
+-- TODO: Move this into TryStartSegment
 function GalaxyMeter:StartLogSegment()
 
 	gLog:info("StartLogSegment()")
@@ -1142,16 +1145,22 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 
 	tEvent.nTypeId = self:GetDamageEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
 
-	self:TryStartSegment(tEvent, tEventArgs.unitTarget)
+	if tEvent.nTypeId > 0 then
 
-	local activeLog = self.tCurrentLog.players
+		self:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
-	self:AssignPlayerInfo(tEvent, tEventArgs)
+		local activeLog = self.tCurrentLog.players
 
-	local player = self:GetPlayer(activeLog, tEvent)
-	self:UpdateSpell(tEvent, player)
+		self:AssignPlayerInfo(tEvent, tEventArgs)
 
-	Event_FireGenericEvent(GalaxyMeter.kEventDeflect, tEvent)
+		local player = self:GetPlayer(activeLog, tEvent)
+		self:UpdateSpell(tEvent, player)
+
+		Event_FireGenericEvent(GalaxyMeter.kEventDeflect, tEvent)
+	else
+		gLog:error(string.format("OnCLDeflect: Something went wrong!  Caster '%s', Target '%', Spell '%s'",
+			tEvent.strCaster, tEvent.strTarget, tEvent.strSpellName))
+	end
 end
 
 
@@ -1255,7 +1264,7 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingOut
 		tEvent.PlayerName = tEvent.strCaster
 		tEvent.PlayerId = tEvent.nCasterId
-		tEvent.ClassId = tEvent.nCasterId
+		tEvent.ClassId = tEvent.nCasterClassId
 
 		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
 
@@ -1269,7 +1278,7 @@ function GalaxyMeter:ProcessHeal(tEvent, tEventArgs)
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingIn
 		tEvent.PlayerName = tEvent.strTarget
 		tEvent.PlayerId = tEvent.nTargetId
-		tEvent.ClassId = tEvent.nTargetId
+		tEvent.ClassId = tEvent.nTargetClassId
 
 		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
 
@@ -1569,11 +1578,11 @@ function GalaxyMeter:GetPlayer(tLog, tEvent)
 		}
 
 		if tEvent.PlayerId then
-			player.playerId = tEvent.PlayerId             -- Player GUID?
+			player.playerId = tEvent.PlayerId		-- Player GUID?
 		end
 
 		if tEvent.ClassId then
-			player.classId = tEvent.ClassId   	     			-- Player Class Id
+			player.classId = tEvent.ClassId			-- Player Class Id
 		end
 
         tLog[playerName] = player
