@@ -318,10 +318,10 @@ end
 --]]
 
 
-function MobData:GetDamageEventType(unitCaster, unitTarget)
+function MobData:GetDamageEventType(tEvent)
 
-	local bSourceIsCharacter = GM:IsPlayerOrPlayerPet(unitCaster)
-	local bTargetIsCharacter = GM:IsPlayerOrPlayerPet(unitTarget)
+	local bSourceIsCharacter = tEvent.tCasterInfo.bIsPlayer
+	local bTargetIsCharacter = tEvent.tTargetInfo.bIsPlayer
 
 	--[[
 	 source mob or pet 		&& target player or pet => mob dmg out
@@ -359,15 +359,7 @@ end
 function MobData:OnCombatLogDamage(tEventArgs)
 
 	if not tEventArgs.unitCaster or not tEventArgs.unitTarget then
-		GM.Log:info("discarding mob dmg no unit or caster")
-		return
-	end
-
-	local bCasterIsPlayer = GM:IsPlayerOrPlayerPet(tEventArgs.unitCaster)
-
-	-- Not interested in character to character data
-	if bCasterIsPlayer and GM:IsPlayerOrPlayerPet(tEventArgs.unitTarget) then
-		GM.Log:info("discarding mob dmg player dmg only")
+		--GM.Log:info("discarding mob dmg no unit or caster")
 		return
 	end
 
@@ -375,9 +367,13 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 	if not tEvent then return end
 
+	-- Not interested in character to character data
+	if tEvent.tCasterInfo.bIsPlayer and tEvent.tTargetInfo.bIsPlayer then
+		--GM.Log:info("discarding mob dmg player dmg only")
+		return
+	end
+
 	tEvent.bDeflect = false
-	--tEvent.unitCaster = tEventArgs.unitCaster
-	--tEvent.unitTarget = tEventArgs.unitTarget
 	tEvent.nDamageRaw = tEventArgs.nRawDamage
 	tEvent.nShield = tEventArgs.nShield
 	tEvent.nAbsorb = tEventArgs.nAbsorption
@@ -389,9 +385,9 @@ function MobData:OnCombatLogDamage(tEventArgs)
 	tEvent.eEffectType = tEventArgs.eEffectType
 	tEvent.nDamage = tEventArgs.nDamageAmount
 
-	tEvent.nTypeId = self:GetDamageEventType(tEventArgs.unitCaster, tEventArgs.unitTarget)
+	tEvent.nTypeId = self:GetDamageEventType(tEvent)
 
-	GM:Rover("MobEvent", tEvent)
+	--GM:Rover("MobEvent", tEvent)
 
 	if tEvent.nTypeId > 0 and tEvent.nDamage then
 
@@ -399,13 +395,13 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 		local mob
 
-		if not bCasterIsPlayer then
-			mob = GM:GetMob(GM:GetLog(), tEvent.nCasterId, tEventArgs.unitCaster)
+		if not tEvent.tCasterInfo.bIsPlayer then
+			mob = GM:GetMob(GM:GetLog(), tEvent.tCasterInfo.nId, tEventArgs.unitCaster)
 		else
-			mob = GM:GetMob(GM:GetLog(), tEvent.nTargetId, tEventArgs.unitTarget)
+			mob = GM:GetMob(GM:GetLog(), tEvent.tTargetInfo.nId, tEventArgs.unitTarget)
 		end
 
-		GM:Rover("mob", {mob = mob})
+		--GM:Rover("mob", {mob = mob})
 
 		GM:UpdateSpell(tEvent, mob)
 
@@ -422,14 +418,14 @@ function MobData:OnCombatLogHeal(tEventArgs)
 		return
 	end
 
-	-- Not interested in character to character data
-	if GM:IsPlayerOrPlayerPet(tEventArgs.unitCaster) and GM:IsPlayerOrPlayerPet(tEventArgs.unitTarget) then
-		return
-	end
-
 	local tEvent = GM:HelperCasterTargetSpell(tEventArgs, true, true)
 
 	if not tEvent then return end
+
+	-- Not interested in character to character data
+	if tEvent.tCasterInfo.bIsPlayer and tEvent.tTargetInfo.bIsPlayer then
+		return
+	end
 
 end
 

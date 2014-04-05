@@ -465,7 +465,7 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 
 	elseif tEvent.nTypeId == Interrupts.eTypeInterrupt.Out then
 		-- The player interrupted something
-		GM.Log:info(tEvent.strCaster .. " interrupted " .. tEvent.strTarget)
+		GM.Log:info(tEvent.tCasterInfo.strName .. " interrupted " .. tEvent.tTargetInfo.strName)
 
 		player.interrupts = (player.interrupts or 0) + 1
 
@@ -517,7 +517,7 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 		})
 
 		GM.Log:info(string.format("Interrupt: caster='%s:%s' target='%s:%s'",
-			tEvent.strCaster, tEvent.strInterruptingSpell, tEvent.strTarget, tEvent.strInterruptedSpell))
+			tEvent.tCasterInfo.strName, tEvent.strInterruptingSpell, tEvent.tTargetInfo.strname, tEvent.strInterruptedSpell))
 
 
 	elseif tEvent.nTypeId == Interrupts.eTypeInterrupt.In then
@@ -568,7 +568,7 @@ function Interrupts:OnCombatLogInterrupted(tEventArgs)
 		-- Spell that interrupted the casting spell
 		tEvent.strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName()
 
-		local tPlayer = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strCaster})
+		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
 		GM.Log:info({tEvent=tEvent})
 
@@ -629,7 +629,7 @@ function Interrupts:OnCombatLogCCState(tEventArgs)
 		-- Spell that was casting and got interrupted
 		tEvent.strInterruptedSpell = tEventArgs.unitTarget:GetCastName()
 
-		local tPlayer = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strCaster})
+		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
 		GM.Log:info({tEvent=tEvent})
 
@@ -725,12 +725,12 @@ function Interrupts:OnCombatLogModifyInterruptArmor(tEventArgs)
 		tEvent.bDeflect = false
 
 		-- Spell that was casting and got interrupted
-		tEvent.strInterruptedSpell = tInfo.strSpellName
+		tEvent.strInterruptedSpell = tEvent.strSpellName
 
 		-- Spell that interrupted the casting spell
 		tEvent.strInterruptingSpell = tEventArgs.splInterruptingSpell:GetName()
 
-		local tPlayer = GM:GetPlayer(GM:GetLog().players, {PlayerName=tEvent.strCaster})
+		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
 		GM.Log:info({tEvent=tEvent})
 
