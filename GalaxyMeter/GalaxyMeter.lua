@@ -678,6 +678,7 @@ function GalaxyMeter:GroupInCombat()
 		return false
 	end
 
+	-- WHY DOES THE GAME SOMETIMES RETURN ISINCOMBAT FALSE WHEN IM IN COMBAT KSAJDFKSJDFKS
 	local bSelfInCombat = GameLib.GetPlayerUnit():IsInCombat() or self.bPetAffectingCombat or self.bInCombat
 
 	local nMemberCount = GroupLib.GetMemberCount()
@@ -818,15 +819,6 @@ function GalaxyMeter:PushLogSegment()
 	self.timerDisplay:Stop()
 	self.timerTimer:Stop()
 
-	-- Save player active times
-	--[[
-	for k, player in pairs(self.tCurrentLog.players) do
-		if player.lastAction then
-			player.timeActive = player.lastAction - player.firstAction
-		end
-	end
-	--]]
-
 	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
 
     self:NewLogSegment()
@@ -839,31 +831,9 @@ end
 function GalaxyMeter:GetActiveTime(tLog, tActor)
 	local nTimeTotal = 0
 
-	-- Why do we care if the segment has ended or not?
-
-	-- Set time for already ended segment
-	--[[
-	if tActor.timeActive then
-		nTimeTotal = tActor.timeActive
-	end
-
-	-- Add in-progress time if set is not ended.
-	if not tLog.stop and tActor.firstAction then
-		nTimeTotal = nTimeTotal + tActor.lastAction - tActor.firstAction
-	else
-		nTimeTotal = tActor.timeActive
-	end
-	--]]
-
 	if tActor.firstAction then
 		nTimeTotal = tActor.lastAction - tActor.firstAction
 	end
-
-	--[[
-	if nTimeTotal == 1 or nTimeTotal == 0 then
-		Event_FireGenericEvent("SendVarToRover", "GetActiveTime", {self=self, tActor=tActor, nTimeTotal=nTimeTotal, wnTimeTotalCalc=(tActor.lastAction - tActor.firstAction)})
-	end
-	--]]
 
 	return math.max(1, nTimeTotal)
 end
@@ -880,12 +850,10 @@ function GalaxyMeter:OnEnteredCombat(unit, bInCombat)
 		-- We weren't in combat before, so start new segment
 		if not bInCombat and not self.bPetAffectingCombat then
 			-- Hm, we shouldnt set this flag if the spell was a heal...
-			--self.bNeedNewLog = true
-			gLog:info("OnEnteredCombat: self combat false")
+			--gLog:info("OnEnteredCombat: self combat false")
 			self.bInCombat = false
-            --gLog:info("Self out of combat: Setting bNeedNewLog = true")
         else
-			gLog:info("OnEnteredCombat: self combat true")
+			--gLog:info("OnEnteredCombat: self combat true")
 			self.bInCombat = true
 		end
 	end
@@ -1113,7 +1081,7 @@ function GalaxyMeter:OnCombatLogAbsorption(tEventArgs)
 end
 
 
-
+-- TODO handle multiple healevents in tHealData[]
 function GalaxyMeter:OnCombatLogTransference(tEventArgs)
 	-- OnCombatLogDamage does exactly what we need so just pass along the tEventArgs
 	self:OnCombatLogDamage(tEventArgs)
@@ -1323,34 +1291,19 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 end
 
 
---[[
--- At full health, healing numbers are incorrect.
--- The effective healing is incorrectly set to raw healing.
---
--- For example if a person has 900/1000 HP and receives a 300 point heal,
--- you'll get an event callback with nAmount = 100 and nOverheal = 200.
---
--- If the person is at 1000/1000 HP, you get a callback with both fields
--- set to 300. nAmount should be 0 though and not 300.
- ]]
-local function GetFixedEffective(tEvent)
-	-- Fix bug whern nAmount is > 0 for a target already at max health
-	if tEvent.tTargetInfo.nHealth == tEvent.tTargetInfo.nMaxHealth then
-		return tEvent.nDamage - tEvent.nOverheal
-	else
-		return tEvent.nDamage
-	end
-end
-
-
 -- Used by both OnCombatLogHeal and OnCombatLogTransference
 function GalaxyMeter:ProcessHeal(tEvent)
 
-	local nFixedEffective = GetFixedEffective(tEvent)
+	tEvent.nEffectiveHeal = tEvent.nDamage
 
-	gLog:info(string.format("Heal:: %s => %s  nAmount %d, nOverheal %d, nFixedEffective %d",
+	-- If target is at max health, nDamage == nOverheal
+	if tEvent.tTargetInfo.nHealth == tEvent.tTargetInfo.nMaxHealth then
+		tEvent.nEffectiveHeal = tEvent.nDamage - tEvent.nOverheal
+	end
+
+	gLog:info(string.format("Heal:: %s => %s  nAmount %d, nOverheal %d, nEffective %d",
 		tEvent.tCasterInfo.strName, tEvent.tTargetInfo.strName,
-		tEvent.nDamage, tEvent.nOverheal, nFixedEffective))
+		tEvent.nDamage, tEvent.nOverheal, tEvent.nEffectiveHeal))
 
 	if tEvent.tCasterInfo.nId == tEvent.tTargetInfo.nId then
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingInOut
@@ -1833,13 +1786,11 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
         -- Special handling for self healing, we want to count this as both healing done and received
         -- Maybe add option to enable tracking for this
 
-		--local nEffective = nAmount - tEvent.nOverheal
-		local nEffective = GetFixedEffective(tEvent)
 		local strTarget = tEvent.tTargetInfo.strName
 
-        actor.healingDone = actor.healingDone + nEffective
+        actor.healingDone = actor.healingDone + tEvent.nEffectiveHeal
 		actor.healingTaken = actor.healingTaken + nAmount
-		actor.healed[strTarget] = (actor.healed[strTarget] or 0) + nEffective
+		actor.healed[strTarget] = (actor.healed[strTarget] or 0) + tEvent.nEffectiveHeal
 
 		if tEvent.nOverheal > 0 then
 			actor.overheal = (actor.overheal or 0) + tEvent.nOverheal
@@ -1857,11 +1808,8 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
 
 	elseif tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.HealingOut then
 
-		--local nEffective = nAmount - tEvent.nOverheal
-		local nEffective = GetFixedEffective(tEvent)
-
-		actor.healingDone = actor.healingDone + nEffective
-		actor.healed[strTarget] = (actor.healed[strTarget] or 0) + nEffective
+		actor.healingDone = actor.healingDone + tEvent.nEffectiveHeal
+		actor.healed[strTarget] = (actor.healed[strTarget] or 0) + tEvent.nEffectiveHeal
 
 		if tEvent.nOverheal > 0 then
 			actor.overheal = (actor.overheal or 0) + tEvent.nOverheal
@@ -1871,11 +1819,8 @@ function GalaxyMeter:UpdateSpell(tEvent, actor)
 
     elseif tEvent.nTypeId == GalaxyMeter.eTypeDamageOrHealing.HealingIn then
 
-		--local nEffective = nAmount - tEvent.nOverheal
-		local nEffective = GetFixedEffective(tEvent)
-
 		actor.healingTaken = actor.healingTaken + nAmount
-		actor.healedBy[strCaster] = (actor.healedBy[strCaster] or 0) + nEffective
+		actor.healedBy[strCaster] = (actor.healedBy[strCaster] or 0) + tEvent.nEffectiveHeal
 
         spell = self:GetSpell(actor.healingIn, strSpellName)
 
