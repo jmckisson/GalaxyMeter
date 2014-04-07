@@ -7,5 +7,6 @@
     <Script Name="Deaths.lua"/>
     <Script Name="Interrupts.lua"/>
     <Script Name="MobData.lua"/>
+    <Script Name="ActorProto.lua"/>
     <Form Name="GalaxyMeter.xml"/>
 </Addon>
