@@ -16,7 +16,7 @@ require "GroupLib"
 -- GalaxyMeter Module Definition
 -----------------------------------------------------------------------------------------------
 local GalaxyMeter = {
-	nVersion = 17,
+	nVersion = 18,
 	eTypeDamageOrHealing = {
 		DamageInOut = 1,
 		DamageIn = 2,
