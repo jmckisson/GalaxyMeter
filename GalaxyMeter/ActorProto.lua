@@ -44,6 +44,7 @@ end
 -----------------------------------------
 local Mob = {}
 Mob.__index = Mob
+GM.Mob = Mob
 
 setmetatable(Mob, {
 	__index = ActorProto,
@@ -72,12 +73,14 @@ end
 -----------------------------------------
 local Player = {}
 Player.__index = Player
+GM.Player = Player
 
 setmetatable(Player, {
 	__index = ActorProto,
-	-- Allow m = Mob() syntax
+	-- Allow m = Player() syntax
 	__call = function(cls, ...)
 		local self = setmetatable({}, cls)
+		--GM.Logger:info("Player._call()")
 		self:_init(...)
 		return self
 	end
@@ -85,6 +88,11 @@ setmetatable(Player, {
 
 
 function Player:_init(tPlayerInfo)
+
+	--GM.Logger:info("Player._init()")
+
+	Event_FireGenericEvent("SendVarToRover", "NewPlayer_"..tPlayerInfo.strName, {tPlayerInfo=tPlayerInfo, self=self})
+
 	ActorProto._init(self)
 
 	self.strName = tPlayerInfo.strName
@@ -103,6 +111,20 @@ function Player:_init(tPlayerInfo)
 	end
 end
 
+
+
+--[[
+-- Get activity time for an actor in a log segment
+ ]]
+function ActorProto:GetActiveTime()
+	local nTimeTotal = 0
+
+	if self.firstAction then
+		nTimeTotal = self.lastAction - self.firstAction
+	end
+
+	return math.max(1, nTimeTotal)
+end
 
 
 -- Find and return spell from spell type table, will create the spell entry if it doesn't exist
@@ -157,6 +179,9 @@ function ActorProto:UpdateSpell(tEvent)
 		return
 	end
 	--]]
+
+	Event_FireGenericEvent("SendVarToRover", "UpdateSpell", {tEvent=tEvent, player=self})
+
 
 	local spell = nil
 	local strCaster = tEvent.tCasterInfo.strName
@@ -244,8 +269,8 @@ function ActorProto:UpdateSpell(tEvent)
 
 	else
 		self:Rover("UpdateSpell Error", tEvent)
-		GM.Log:error("Unknown type in UpdateSpell!")
-		GM.Log:error(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
+		GM.Logger:error("Unknown type in UpdateSpell!")
+		GM.Logger:error(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
 			strSpellName, strCaster, strTarget, nAmount or 0))
 
 		-- spell should be null here, safe to continue on...

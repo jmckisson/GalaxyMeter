@@ -88,7 +88,7 @@ function Deaths:Init()
 	self.lblTitle = self.wndDeathLog:FindChild("LabelTitle")
 	self.wndTextBox = self.wndDeathLog:FindChild("ChatBox")
 
-	GM.Log:info("Deaths:Init()")
+	GM.Logger:info("Deaths:Init()")
 	GM:Dirty(true)
 end
 
@@ -120,7 +120,7 @@ end
 
 
 function Deaths:OnRestore(eType, t)
-	GM.Log:info("OnRestore()")
+	GM.Logger:info("OnRestore()")
 
 	if not t then return end
 
@@ -152,11 +152,11 @@ end
 function Deaths:MenuPlayerDeathSelection(tActor)
 
 	if not tActor then
-		GM.Log:info("cant find actor in MenuActorSelection")
+		GM.Logger:info("cant find actor in MenuActorSelection")
 		return
 	end
 
-	GM.Log:info(string.format("MenuPlayerDeathSelection: %s", tActor.strName))
+	GM.Logger:info(string.format("MenuPlayerDeathSelection: %s", tActor.strName))
 
 	self:DisplayPlayerDeath(tActor)
 end
@@ -327,15 +327,15 @@ function Deaths:AddLogEntry(tEvent)
 	--GM.Log:info(tNewLogEntry.strMessage)
 
 	if tEvent.bCasterIsPlayer then
-		local tActorLog = GM:GetLog().players[tEvent.tCasterInfo.strName]
+		local tActor = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
-		self:AddLogEntryPlayer(tNewLogEntry, tActorLog)
+		self:AddLogEntryPlayer(tNewLogEntry, tActor)
 	end
 
 	if tEvent.bTargetIsPlayer and tEvent.unitCaster:GetId() ~= tEvent.unitTarget:GetId() then
-		local tActorLog = GM:GetLog().players[tEvent.tTargetInfo.strName]
+		local tActor = GM:GetLog().players[tEvent.tTargetInfo.strName]
 
-		self:AddLogEntryPlayer(tNewLogEntry, tActorLog)
+		self:AddLogEntryPlayer(tNewLogEntry, tActor)
 	end
 
 end
@@ -404,7 +404,7 @@ function Deaths:AddPlayerDeath(unitPlayer)
 
 			tPlayerLog.deaths = tPlayerLog.deaths or {}
 
-			GM.Log:info(tPlayerLog.strName .. " death")
+			GM.Logger:info(tPlayerLog.strName .. " death")
 
 			local tDeathLog = {}
 			for i = tPlayerLog.log.first, tPlayerLog.log.last do
@@ -425,11 +425,11 @@ function Deaths:AddPlayerDeath(unitPlayer)
 			})
 
 		else
-			GM.Log:warn(strName .. " died without entries in combat log!")
+			GM.Logerg:warn(strName .. " died without entries in combat log!")
 		end
 
 	else
-		GM.Log:warn("unitPlayer not a player!")
+		GM.Logger:warn("unitPlayer not a player!")
 	end
 end
 
@@ -437,8 +437,8 @@ end
 -- This seems to only be returning the player
 function Deaths:OnCombatLogDeath(tEventArgs)
 	if GM:Debug() then
-		GM.Log:info("OnCombatLogDeath()")
-		GM.Log:info(tEventArgs)
+		GM.Logger:info("OnCombatLogDeath()")
+		GM.Logger:info(tEventArgs)
 		GM:Rover("CLDeath", tEventArgs)
 	end
 

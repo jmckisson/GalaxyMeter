@@ -67,9 +67,20 @@ local GalaxyMeter = {
 	kEventHeal = "GalaxyMeterHeal",
 }
 
+local function HexToCColor(color)
+	local r = tonumber(string.sub(color,1,2), 16) / 255
+	local g = tonumber(string.sub(color,3,4), 16) / 255
+	local b = tonumber(string.sub(color,5,6), 16) / 255
+	local a = tonumber(string.sub(color,5,6 or "FF"), 16) / 255
+	return CColor.new(r,g,b,1)
+end
+
+
 
 local gLog
 local Queue
+local Player
+local Mob
 
 
 ----------------------------------
@@ -102,7 +113,7 @@ function Log.CreateNewLog(strName)
 end
 
 
-function Log:init(strTitle)
+function Log:_init(strTitle)
 	self.name = strTitle
 	self.players = {}
 	self.mobs = {}
@@ -140,17 +151,21 @@ end
 -- Find or create player data table
 -- @return Player data table
 --]]
-function Log:GetPlayer(strName, tEvent)
+function Log:GetPlayer(strName, tPlayerInfo)
 
 	local player = self.players[strName]
 
+	--Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
+
+
 	if not player then
 
-		player = self.Player(tEvent.tPlayerInfo)
-
-		Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tEvent=tEvent, player=player})
+		player = Player(tPlayerInfo)
 
 		self.players[strName] = player
+
+		Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
+
 	end
 
 	if not player.classId then
@@ -158,10 +173,10 @@ function Log:GetPlayer(strName, tEvent)
 		player.classId = 0
 	end
 
-	if tEvent.tPlayerInfo.nClassId ~= player.classId then
-		if not self.ClassToColor[strName] then
-			GalaxyMeter.Log:warn(string.format("%s ClassId mismatch, was %s, now %s", player.strName, tostring(player.classId), tostring(tEvent.tPlayerInfo.nClassId)))
-			player.classId = tEvent.tPlayerInfo.nClassId
+	if tPlayerInfo.nClassId ~= player.classId then
+		if not GalaxyMeter.ClassToColor[strName] then
+			gLog:warn(string.format("%s ClassId mismatch, was %s, now %s", player.strName, tostring(player.classId), tostring(tPlayerInfo.nClassId)))
+			player.classId = tPlayerInfo.nClassId
 		end
 	end
 
@@ -188,6 +203,21 @@ GalaxyMeter.kDamageTypeToColor = {
 	[6]	= GalaxyMeter.kDamageStrToColor["DamageType_Suffocate"],
 }
 
+GalaxyMeter.ClassToColor = {
+	HexToCColor("855513"),	-- Warrior
+	HexToCColor("cf1518"),	-- Engineer
+	HexToCColor("c875c4"),	-- Esper
+	HexToCColor("2cc93f"),	-- Medic
+	HexToCColor("d7de1f"),	-- Stalker
+	HexToCColor("ffffff"),	-- Corrupted
+	HexToCColor("5491e8"),	-- Spellslinger
+	[23] = CColor.new(1, 0, 0, 1),	-- NonPlayer
+	["Humera"] = HexToCColor("6e1dbf"),
+	--["LemonKing"] = self:HexToCColor("f3f315"),
+	["LemonKing"] = HexToCColor("f7ff00"),
+	["Ricardo"] = HexToCColor("006699"),
+}
+
 
 -----------------------------------------------------------------------------------------------
 -- Initialization
@@ -207,16 +237,21 @@ function GalaxyMeter:OnLoad()
 	local GeminiLogging = Apollo.GetPackage("GeminiLogging-1.1").tPackage
 
 	gLog = GeminiLogging:GetLogger({
-		level = GeminiLogging.FATAL,
+		level = GeminiLogging.INFO,
 		pattern = "[%d] %n [%c:%l] - %m",
 		appender = "GeminiConsole"
 	})
 
-	GalaxyMeter.Log = gLog
+	GalaxyMeter.Log = Log
+
+	GalaxyMeter.Logger = gLog
 
 	Queue = Apollo.GetPackage("drafto_Queue-1.1").tPackage
 
 	GalaxyMeter.Queue = Queue
+
+	Player = self.Player
+	Mob = self.Mob
 
 	Queue.copy = function(list)
 		local qNew = {first = list.first, last = list.last}
@@ -297,21 +332,6 @@ function GalaxyMeter:OnLoad()
 	-- Player Check Timer
 	self.timerPulse = ApolloTimer.Create(1, true, "OnPulse", self)
 	self.timerPulse:Stop()
-
-	self.ClassToColor = {
-		self:HexToCColor("855513"),	-- Warrior
-		self:HexToCColor("cf1518"),	-- Engineer
-		self:HexToCColor("c875c4"),	-- Esper
-		self:HexToCColor("2cc93f"),	-- Medic
-		self:HexToCColor("d7de1f"),	-- Stalker
-		self:HexToCColor("ffffff"),	-- Corrupted
-		self:HexToCColor("5491e8"),	-- Spellslinger
-		[23] = CColor.new(1, 0, 0, 1),	-- NonPlayer
-		["Humera"] = self:HexToCColor("6e1dbf"),
-		--["LemonKing"] = self:HexToCColor("f3f315"),
-		["LemonKing"] = self:HexToCColor("f7ff00"),
-		["Ricardo"] = self:HexToCColor("006699"),
-	}
 
 	-- Handled by Configure
 	self.settings = {
@@ -629,36 +649,6 @@ function GalaxyMeter:OnPulse()
 		self.PlayerClassId = self.unitPlayer:GetClassId()
 	end
 
-	-- Stupid hack to properly set class ids instead of thru unit objects from combat log events
-
-	if self.settings.bClassFix and self.vars.tLogDisplay then
-		gLog:info("fixing classes")
-
-		local nMemberCount = GroupLib.GetMemberCount()
-		if nMemberCount == 0 and unitPlayer and self.vars.tLogDisplay.players[self.PlayerName] then
-			self.vars.tLogDisplay.players[self.PlayerName].classId = self.PlayerClassId
-		else
-
-			for i = 1, nMemberCount do
-				local tMemberInfo = GroupLib.GetGroupMember(i)
-				local unitMember = GroupLib.GetUnitForGroupMember(i)
-
-				local strCharName = tMemberInfo.strCharacterName
-
-				if unitMember and self.vars.tLogDisplay.players[strCharName] then
-
-					if self.ClassToColor[strCharName] then
-						self.vars.tLogDisplay.players[strCharName].classId = strCharName
-					else
-
-						self.vars.tLogDisplay.players[strCharName].classId = unitMember:GetClassId()
-					end
-				end
-
-			end
-		end
-	end
-
 
 	-- Check if the rest of the group is out of combat
 	if self.tCurrentLog.start > 0 then
@@ -906,20 +896,6 @@ function GalaxyMeter:PushLogSegment()
 	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
 
     self:NewLogSegment()
-end
-
-
---[[
--- Get activity time for an actor in a log segment
- ]]
-function GalaxyMeter:GetActiveTime(tLog, tActor)
-	local nTimeTotal = 0
-
-	if tActor.firstAction then
-		nTimeTotal = tActor.lastAction - tActor.firstAction
-	end
-
-	return math.max(1, nTimeTotal)
 end
 
 
@@ -1252,8 +1228,8 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 
 		self:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
-		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
-		self:UpdateSpell(tEvent, player)
+		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventDeflect, tEvent)
 	else
@@ -1300,9 +1276,11 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 		self:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
-		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
+		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
-		self:UpdateSpell(tEvent, player)
+		self:Rover("OnCLDamage", {tEvent=tEvent, player=player})
+
+		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventDamage, tEvent)
 
@@ -1394,9 +1372,9 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tCasterInfo
 
-		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
+		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
-		self:UpdateSpell(tEvent, player)
+		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventHeal, tEvent)
 
@@ -1409,9 +1387,9 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tCasterInfo
 
-		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
+		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
-		self:UpdateSpell(tEvent, player)
+		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventHeal, tEvent)
 	end
@@ -1422,9 +1400,9 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tTargetInfo
 
-		local player = self:GetPlayer(self.tCurrentLog.players, tEvent)
+		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
-		self:UpdateSpell(tEvent, player)
+		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventHeal, tEvent)
 	end
@@ -1875,7 +1853,7 @@ function GalaxyMeter:GetActorUnitList()
 		if v > nMax then v = nMax end
 	end
 
-	local nTime = self:GetActiveTime(tLogSegment, tActor)
+	local nTime = tActor:GetActiveTime()
 
 	-- Build list
 	local tList = {}
@@ -1888,7 +1866,7 @@ function GalaxyMeter:GetActorUnitList()
 			t = v,
 			tStr = mode.format(v, nTime),
 			progress = v / nMax,
-			c = self.ClassToColor[23],	-- This should be the class of the target...
+			c = GalaxyMeter.ClassToColor[23],	-- This should be the class of the target...
 			click = function(m, btn)
 				if btn == 1 and mode.prev then
 					mode.prev(self)
@@ -1900,7 +1878,7 @@ function GalaxyMeter:GetActorUnitList()
 	local tTotal = {
 		n = mode.name,
 		progress = 1,
-		c = self.ClassToColor[tActor.classId],
+		c = GalaxyMeter.ClassToColor[tActor.classId],
 		tStr = mode.format(nActorTotal, nTime),
 	}
 
@@ -1947,12 +1925,12 @@ function GalaxyMeter:GetUnitList()
 
 			local nActorTotal = tActor[typeTotal]
 
-			local nActorTime = self:GetActiveTime(tLogSegment, tActor)
+			local nActorTime = tActor:GetActiveTime()
 
 			table.insert(tList, {
 				n = tActor.strName,
 				t = nActorTotal,
-				c = self.ClassToColor[tActor.classId],
+				c = GalaxyMeter.ClassToColor[tActor.classId],
 				tStr = mode.format(nActorTotal, nActorTime),
 				progress = nActorTotal / nMax,
 				click = function(m, btn)
@@ -2024,7 +2002,7 @@ function GalaxyMeter:GetOverallList()
 
 			local nAmount = tActor[mode.type]
 
-			local nActorTime = self:GetActiveTime(tLogSegment, tActor)
+			local nActorTime = tActor:GetActiveTime()
 
 			--[[
 			if nActorTime == 1 then
@@ -2042,7 +2020,7 @@ function GalaxyMeter:GetOverallList()
 				n = tActor.strName,
 				t = nAmount,
 				tStr = mode.format(nAmount, nActorTime, nTime),
-				c = self.ClassToColor[tActor.classId],
+				c = GalaxyMeter.ClassToColor[tActor.classId],
 				progress = nAmount / nMax,
 				click = function(m, btn)
 					-- arg is the specific actor log table
@@ -2096,7 +2074,7 @@ function GalaxyMeter:GetPlayerList()
 
 	local nDmgTotal = tPlayerLog[dmgTypeTotal]
 
-	local nTime = self:GetActiveTime(tLogSegment, tPlayerLog)
+	local nTime = tPlayerLog:GetActiveTime()
 
 	--pattern = "%s's Damage to %s",
 	local strModePattern = mode.pattern:format(strPlayerName, tLogSegment.name)
@@ -2286,7 +2264,7 @@ function GalaxyMeter:GetSpellTotalsList()
 
 	table.insert(tList, {n = "Total ", tStr = totals.total, click = cFunc})
 
-	table.insert(tList, {n = "Time Active", tStr = ("%.1fs"):format(self:GetActiveTime(self.vars.tLogDisplay, tPlayerLog)), click = cFunc})
+	table.insert(tList, {n = "Time Active", tStr = ("%.1fs"):format(tPlayerLog:GetActiveTime()), click = cFunc})
 
 	table.insert(tList, {n = "Cast Count/Avg", tStr = string.format("%d - %.2f", totals.castCount, totals.avg), click = cFunc})
 	table.insert(tList, {n = "Crit Damage", tStr = string.format("%d (%.2f%%)", totals.totalCrit, totals.totalCrit / totals.total * 100), click = cFunc})
@@ -2923,13 +2901,6 @@ function GalaxyMeter:Rover(varName, var)
 end
 
 
-function GalaxyMeter:HexToCColor(color)
-	local r = tonumber(string.sub(color,1,2), 16) / 255
-	local g = tonumber(string.sub(color,3,4), 16) / 255
-	local b = tonumber(string.sub(color,5,6), 16) / 255
-	local a = tonumber(string.sub(color,5,6 or "FF"), 16) / 255
-	return CColor.new(r,g,b,1)
-end
 
 
 -----------------------------------------------------------------------------------------------

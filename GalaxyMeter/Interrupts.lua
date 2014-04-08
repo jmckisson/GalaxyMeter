@@ -15,25 +15,15 @@ local Interrupts = {
 		InOut = 1,
 		In = 2,
 		Out = 3,
-	}
+	},
+	tTrackedUnits = {},
 }
-
+GM.Interrupts = Interrupts
 
 local kTrackUnitType = {
 	NonPlayer = true,
 }
 
-
-function Interrupts:new(o)
-	o = o or {}
-
-	setmetatable(o, self)
-	self.__index = self
-
-	self.tTrackedUnits = {}
-
-	return o
-end
 
 
 function Interrupts:Init()
@@ -257,7 +247,7 @@ function Interrupts:GetCastList()
 	local tLogDisplay = GM:GetLogDisplay()
 	local nActorId = GM:LogActorId()
 
-	local tActor = GM:GetMob(tLogDisplay, nActorId)
+	local tActor = tLogDisplay:GetMob(nActorId)
 
 	local tTotal = {t = 0, c = GM.kDamageStrToColor.Self, progress = 1}
 	tTotal.tStr = ""
@@ -881,7 +871,7 @@ function Interrupts:OnFrame()
 			--GM:Rover("Cast", tUnitInfo)
 
 			-- Find mob in log
-			local tMob = GM:GetMob(tLogSegment, nUnitId, tUnitInfo.unit)
+			local tMob = tLogSegment:GetMob(nUnitId, tUnitInfo.unit)
 
 			tMob.casts = tMob.casts or {}
 
@@ -929,6 +919,3 @@ function Interrupts:OnFrame()
 		end
 	end
 end
-
-
-GM.Interrupts = Interrupts:new()

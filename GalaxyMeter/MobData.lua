@@ -7,16 +7,7 @@
 
 local GM = Apollo.GetAddon("GalaxyMeter")
 local MobData = {}
-
-
-function MobData:new(o)
-	o = o or {}
-	setmetatable(o, self)
-	self.__index = self
-
-	return o
-end
-
+GM.MobData = MobData
 
 function MobData:Init()
 
@@ -393,17 +384,18 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 		GM:TryStartSegment(tEvent, tEventArgs.unitTarget)
 
+		local log = GM:GetLog()
 		local mob
 
 		if not tEvent.tCasterInfo.bIsPlayer then
-			mob = GM:GetMob(GM:GetLog(), tEvent.tCasterInfo.nId, tEventArgs.unitCaster)
+			mob = log:GetMob(tEvent.tCasterInfo.nId, tEventArgs.unitCaster)
 		else
-			mob = GM:GetMob(GM:GetLog(), tEvent.tTargetInfo.nId, tEventArgs.unitTarget)
+			mob = log:GetMob(tEvent.tTargetInfo.nId, tEventArgs.unitTarget)
 		end
 
 		--GM:Rover("mob", {mob = mob})
 
-		GM:UpdateSpell(tEvent, mob)
+		mob:UpdateSpell(tEvent)
 
 	else
 		GM.Log:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
@@ -428,6 +420,3 @@ function MobData:OnCombatLogHeal(tEventArgs)
 	end
 
 end
-
-
-GM.MobData = MobData:new()
