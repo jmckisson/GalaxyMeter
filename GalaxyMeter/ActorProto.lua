@@ -158,7 +158,7 @@ function ActorProto:GetSpell(tSpellTypeLog, spellName)
 end
 
 
-function ActorProto:UpdateAction()
+function ActorProto:UpdateActiveTime()
 	local timeNow = os.clock()
 
 	if not self.firstAction then
@@ -209,8 +209,6 @@ function ActorProto:UpdateSpell(tEvent)
 		GM:TallySpellAmount(tEvent, spellOut)
 		GM:TallySpellAmount(tEvent, spellIn)
 
-		self:UpdateAction()
-
 		GM:Dirty(true)
 
 	elseif tEvent.nTypeId == GM.eTypeDamageOrHealing.HealingOut then
@@ -244,8 +242,6 @@ function ActorProto:UpdateSpell(tEvent)
 		GM:TallySpellAmount(tEvent, spellOut)
 		GM:TallySpellAmount(tEvent, spellIn)
 
-		self:UpdateAction()
-
 		GM:Dirty(true)
 
 	elseif tEvent.nTypeId == GM.eTypeDamageOrHealing.DamageOut then
@@ -278,7 +274,6 @@ function ActorProto:UpdateSpell(tEvent)
 
 	if spell then
 		GM:TallySpellAmount(tEvent, spell)
-		self:UpdateAction()
 		GM:Dirty(true)
 	end
 

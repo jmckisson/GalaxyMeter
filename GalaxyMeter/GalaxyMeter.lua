@@ -138,7 +138,7 @@ function Log:GetMob(nMobId, unit)
 
 	if not mob then
 
-		mob = GalaxyMeter.Mob(nMobId, unit)
+		mob = Mob(nMobId, unit)
 
 		self.mobs[nMobId] = mob
 	end
@@ -154,9 +154,6 @@ end
 function Log:GetPlayer(strName, tPlayerInfo)
 
 	local player = self.players[strName]
-
-	--Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
-
 
 	if not player then
 
@@ -179,6 +176,8 @@ function Log:GetPlayer(strName, tPlayerInfo)
 			player.classId = tPlayerInfo.nClassId
 		end
 	end
+
+	player:UpdateActiveTime()
 
 	return player
 end
