@@ -137,7 +137,7 @@ function MobData:MenuActorSelection(m, tActor)
 	GM:LogType(mode.type)
 	GM:LogActorName(tActor.strName)
 
-	GM.Log:info(string.format("MenuActorSelection: %s -> %s", tActor.strName, mode.type))
+	GM.Logger:info(string.format("MenuActorSelection: %s -> %s", tActor.strName, mode.type))
 
 	GM:LogModeType(GM.tListFromSubType[mode.type])	-- Save this because as we delve deeper into menus the type isn't necessarily set
 
@@ -350,7 +350,7 @@ end
 function MobData:OnCombatLogDamage(tEventArgs)
 
 	if not tEventArgs.unitCaster or not tEventArgs.unitTarget then
-		--GM.Log:info("discarding mob dmg no unit or caster")
+		--GM.Logger:info("discarding mob dmg no unit or caster")
 		return
 	end
 
@@ -360,7 +360,7 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 	-- Not interested in character to character data
 	if tEvent.tCasterInfo.bIsPlayer and tEvent.tTargetInfo.bIsPlayer then
-		--GM.Log:info("discarding mob dmg player dmg only")
+		--GM.Logger:info("discarding mob dmg player dmg only")
 		return
 	end
 
@@ -398,7 +398,7 @@ function MobData:OnCombatLogDamage(tEventArgs)
 		mob:UpdateSpell(tEvent)
 
 	else
-		GM.Log:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
+		GM.Logger:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
 
 	end
 

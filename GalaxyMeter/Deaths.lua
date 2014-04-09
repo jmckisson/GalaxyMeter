@@ -135,7 +135,7 @@ end
 
 
 function Deaths:OnSave(eType)
-	GM.Log:info("OnSave()")
+	GM.Logger:info("OnSave()")
 
 	local tSave = {
 		settings = {}

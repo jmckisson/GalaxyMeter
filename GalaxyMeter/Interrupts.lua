@@ -139,7 +139,7 @@ function Interrupts:Init()
 		},
 	}
 
-	GM.Log:info("Interrupts:Init()")
+	GM.Logger:info("Interrupts:Init()")
 	GM:Dirty(true)
 
 end
@@ -389,7 +389,7 @@ function Interrupts:MenuActorSelection(tActor)
 
 	GM:LogActorId(nActorId)
 
-	GM.Log:info(string.format("MenuActorSelection: %s -> %s", tActor.strName, mode.type))
+	GM.Logger:info(string.format("MenuActorSelection: %s -> %s", tActor.strName, mode.type))
 
 	local newMode = self.tModeFromSubType[mode.type]
 
@@ -448,14 +448,14 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 	--local strSpellName = tEvent.strInterruptingSpell
 
 	if tEvent.nTypeId == Interrupts.eTypeInterrupt.InOut then
-		GM.Log:info("Self interrupt?")
+		GM.Logger:info("Self interrupt?")
 
 		--player.interrupts = (player.interrupts or 0) + 1
 		--player.interrupted = (player.interrupted or 0) + 1
 
 	elseif tEvent.nTypeId == Interrupts.eTypeInterrupt.Out then
 		-- The player interrupted something
-		GM.Log:info(tEvent.tCasterInfo.strName .. " interrupted " .. tEvent.tTargetInfo.strName)
+		GM.Logger:info(tEvent.tCasterInfo.strName .. " interrupted " .. tEvent.tTargetInfo.strName)
 
 		player.interrupts = (player.interrupts or 0) + 1
 
@@ -468,15 +468,15 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 
 		-- Find spell that was interrupted by time if GetCastName() failed
 		--if not tEvent.strInterruptedSpell or tEvent.strInterruptedSpell == "" then
-			GM.Log:info("No strInterruptedSpell")
+			GM.Logger:info("No strInterruptedSpell")
 			local tMob = GM:FindMob(GM:GetLog(), tEvent.nTargetId)
 			if not tMob then
-				GM.Log:error(string.format("Could not locate mob %s for interrupt", tEvent.strTarget))
+				GM.Logger:error(string.format("Could not locate mob %s for interrupt", tEvent.strTarget))
 				return
 			end
 
 			if not tMob.casts then
-				GM.Log:error("mob has no casts")
+				GM.Logger:error("mob has no casts")
 				return
 			end
 
@@ -490,7 +490,7 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 			end
 
 			if not found then
-				GM.Log:error("failed to find cast")
+				GM.Logger:error("failed to find cast")
 				return
 			end
 
@@ -506,13 +506,13 @@ function Interrupts:UpdateInterrupt(tEvent, player)
 			strSpell = tEvent.strInterruptingSpell,
 		})
 
-		GM.Log:info(string.format("Interrupt: caster='%s:%s' target='%s:%s'",
+		GM.Logger:info(string.format("Interrupt: caster='%s:%s' target='%s:%s'",
 			tEvent.tCasterInfo.strName, tEvent.strInterruptingSpell, tEvent.tTargetInfo.strname, tEvent.strInterruptedSpell))
 
 
 	elseif tEvent.nTypeId == Interrupts.eTypeInterrupt.In then
 		--[[
-		GM.Log:info("Target interrupted")
+		GM.Logger:info("Target interrupted")
 
 		player.interrupted = (player.interrupted or 0) + 1
 		player.interruptIn = player.interruptIn or {}
@@ -560,7 +560,7 @@ function Interrupts:OnCombatLogInterrupted(tEventArgs)
 
 		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
-		GM.Log:info({tEvent=tEvent})
+		GM.Logger:info({tEvent=tEvent})
 
 		tEvent.nTypeId = Interrupts.eTypeInterrupt.Out
 
@@ -600,8 +600,8 @@ function Interrupts:OnCombatLogCCState(tEventArgs)
 	if GM:IsPlayerOrPlayerPet(tEventArgs.unitCaster) then
 
 		if GM:Debug() then
-			GM.Log:info("CCStateIA")
-			GM.Log:info(tEventArgs)
+			GM.Logger:info("CCStateIA")
+			GM.Logger:info(tEventArgs)
 		end
 
 		local tEvent = GM:HelperCasterTargetSpell(tEventArgs, true, true)
@@ -621,7 +621,7 @@ function Interrupts:OnCombatLogCCState(tEventArgs)
 
 		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
-		GM.Log:info({tEvent=tEvent})
+		GM.Logger:info({tEvent=tEvent})
 
 		tEvent.nTypeId = Interrupts.eTypeInterrupt.Out
 
@@ -680,8 +680,8 @@ end
 
 function Interrupts:OnCombatLogCCStateBreak(tEventArgs)
 	if GM:Debug() then
-		GM.Log:info("OnCombatLogCCStateBreak()")
-		GM.Log:info(tEventArgs)
+		GM.Logger:info("OnCombatLogCCStateBreak()")
+		GM.Logger:info(tEventArgs)
 	end
 end
 
@@ -699,8 +699,8 @@ end
 function Interrupts:OnCombatLogModifyInterruptArmor(tEventArgs)
 
 	if GM:Debug() then
-		GM.Log:info("OnCombatLogModifyInterruptArmor")
-		GM.Log:info(tEventArgs)
+		GM.Logger:info("OnCombatLogModifyInterruptArmor")
+		GM.Logger:info(tEventArgs)
 	end
 
 	if GM:IsPlayerOrPlayerPet(tEventArgs.unitCaster) then
@@ -722,7 +722,7 @@ function Interrupts:OnCombatLogModifyInterruptArmor(tEventArgs)
 
 		local tPlayer = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
-		GM.Log:info({tEvent=tEvent})
+		GM.Logger:info({tEvent=tEvent})
 
 		tEvent.nTypeId = Interrupts.eTypeInterrupt.Out
 
@@ -734,7 +734,7 @@ end
 
 function Interrupts:OnUnitEnteredCombat(unit, bCombat)
 
-	--GM.Log:info("UnitEnteredCombat: " .. unit:GetName())
+	--GM.Logger:info("UnitEnteredCombat: " .. unit:GetName())
 
 	if unit and bCombat then
 		local nUnitId = unit:GetId()
@@ -754,7 +754,7 @@ end
 function Interrupts:OnTargetUnitChanged(unit)
 
 	if unit then
-		--GM.Log:info("TargetUnitChanged: " .. unit:GetName())
+		--GM.Logger:info("TargetUnitChanged: " .. unit:GetName())
 
 		local nUnitId = unit:GetId()
 
@@ -845,7 +845,7 @@ function Interrupts:OnFrame()
 
 		--[[
 		if bIsCasting then
-			GM.Log:info(string.format("%s casting state %d", tUnitInfo.unit:GetName(), tUnitInfo.state))
+			GM.Logger:info(string.format("%s casting state %d", tUnitInfo.unit:GetName(), tUnitInfo.state))
 			GM:Rover("Casting:"..tUnitInfo.unit:GetName(), tUnitInfo)
 		end
 		--]]
@@ -856,7 +856,7 @@ function Interrupts:OnFrame()
 			-- Unit just started casting
 			tUnitInfo.state = Interrupts.EnumState.Casting
 
-			GM.Log:info(string.format("%s cast start %s", tUnitInfo.unit:GetName(), tUnitInfo.unit:GetCastName()))
+			GM.Logger:info(string.format("%s cast start %s", tUnitInfo.unit:GetName(), tUnitInfo.unit:GetCastName()))
 
 			-- Create cast start entry
 			local tCast = {
@@ -886,7 +886,7 @@ function Interrupts:OnFrame()
 
 				-- Oh shit
 				if not tUnitInfo.tCast then
-					GM.Log:error("Cast ended without starting")
+					GM.Logger:error("Cast ended without starting")
 				else
 
 					local tMob = GM:FindMob(tLogSegment, nUnitId)
@@ -894,7 +894,7 @@ function Interrupts:OnFrame()
 					-- Current cast should be the last entry in this mobs table
 					if not tMob or not tMob.casts then
 
-						GM.Log:error(string.format("No entry for mob[%d] ending cast", nUnitId))
+						GM.Logger:error(string.format("No entry for mob[%d] ending cast", nUnitId))
 
 					else
 
@@ -905,7 +905,7 @@ function Interrupts:OnFrame()
 							tCast.nStop = timeNow
 
 						else
-							GM.Log:error("That is not the cast we're looking for [mob: %d spl: '%s' start: %d != %d]",
+							GM.Logger:error("That is not the cast we're looking for [mob: %d spl: '%s' start: %d != %d]",
 								nUnitId, tCast.strSpell, tCast.nStart, tUnitInfo.tCast.nStart)
 						end
 
