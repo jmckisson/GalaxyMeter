@@ -91,7 +91,7 @@ function Player:_init(tPlayerInfo)
 
 	--GM.Logger:info("Player._init()")
 
-	Event_FireGenericEvent("SendVarToRover", "NewPlayer_"..tPlayerInfo.strName, {tPlayerInfo=tPlayerInfo, self=self})
+	--Event_FireGenericEvent("SendVarToRover", "NewPlayer_"..tPlayerInfo.strName, {tPlayerInfo=tPlayerInfo, self=self})
 
 	ActorProto._init(self)
 
@@ -180,7 +180,7 @@ function ActorProto:UpdateSpell(tEvent)
 	end
 	--]]
 
-	Event_FireGenericEvent("SendVarToRover", "UpdateSpell", {tEvent=tEvent, player=self})
+	--Event_FireGenericEvent("SendVarToRover", "UpdateSpell", {tEvent=tEvent, player=self})
 
 
 	local spell = nil

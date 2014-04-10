@@ -161,7 +161,7 @@ function Log:GetPlayer(strName, tPlayerInfo)
 
 		self.players[strName] = player
 
-		Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
+		--Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
 
 	end
 
@@ -367,13 +367,13 @@ function GalaxyMeter:OnLoad()
 			next = self.MenuPlayerSelection,			-- Left Click, next menu
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
-				if self.settings.nFormatType == 1 then
-					return self:FormatAmountTime(...)
-				elseif self.settings.nFormatType == 2 then
+				if self.settings.nFormatType == 2 then
 					return self:FormatAmountActiveTime(...)
-				else
+				elseif self.settings.FormatType == 3 then
 					return self:FormatAmountActiveTimeLength(...)
 				end
+
+				return self:FormatAmountTime(...)
 			end
 		},
 		["Player Damage Taken"] = {
@@ -458,13 +458,13 @@ function GalaxyMeter:OnLoad()
 			nextTotal = self.MenuPlayerSpellTotal,
 			sort = function(a,b) return a.t > b.t end,
 			format = function(...)
-				if self.settings.nFormatType == 1 then
-					return self:FormatAmountTime(...)
-				elseif self.settings.nFormatType == 2 then
+				if self.settings.nFormatType == 2 then
 					return self:FormatAmountActiveTime(...)
-				else
+				elseif self.settings.FormatType == 3 then
 					return self:FormatAmountActiveTimeLength(...)
 				end
+
+				return self:FormatAmountTime(...)
 			end
 		},
 		["Player Damage Taken Breakdown"] = {
@@ -1320,7 +1320,7 @@ function GalaxyMeter:OnCombatLogHeal(tEventArgs)
 		and self.tLastHeal.c == tEvent.tCasterInfo.strName
 		and self.tLastHeal.t == tEvent.tTargetInfo.strName then
 			if os.time() - self.tLastHeal.time < 0.1 then
-				gLog:info("Discarding duplicate heal")
+				--gLog:info("Discarding duplicate heal")
 				self.tLastHeal = nil
 				return
 			end
@@ -1362,9 +1362,11 @@ function GalaxyMeter:ProcessHeal(tEvent)
 		tEvent.nEffectiveHeal = tEvent.nDamage - tEvent.nOverheal
 	end
 
+	--[[
 	gLog:info(string.format("Heal:: %s => %s  nAmount %d, nOverheal %d, nEffective %d",
 		tEvent.tCasterInfo.strName, tEvent.tTargetInfo.strName,
 		tEvent.nDamage, tEvent.nOverheal, tEvent.nEffectiveHeal))
+	--]]
 
 	if tEvent.tCasterInfo.nId == tEvent.tTargetInfo.nId then
 		tEvent.nTypeId = GalaxyMeter.eTypeDamageOrHealing.HealingInOut
@@ -2003,17 +2005,21 @@ function GalaxyMeter:GetOverallList()
 
 			local nActorTime = tActor:GetActiveTime()
 
-			--[[
-			if nActorTime == 1 then
-				Event_FireGenericEvent("SendVarToRover", "tActorInOverall", {
+			if nActorTime > nTime then
+				gLog:info(string.format("[%.1fs : %.1f] %s :: first %.1f last %.1f active %.1fs",
+					nTime, tLogSegment.start, tActor.strName, tActor.firstAction, tActor.lastAction, nActorTime))
+
+				--[[
+				Event_FireGenericEvent("SendVarToRover", "tActorBadTime_"..tActor.strName, {
 					self = self,
 					tLog = tLogSegment,
 					tActor = tActor,
 					activeCalc = (tActor.lastAction - tActor.firstAction)
 				})
-				nActorTime = nTime
+				--]]
+				--nActorTime = nTime
 			end
-			--]]
+
 
 			table.insert(tList, {
 				n = tActor.strName,
