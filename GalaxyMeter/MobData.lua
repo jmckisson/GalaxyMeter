@@ -183,7 +183,7 @@ function MobData:GetActorList()
 
 	local nDmgTotal = tActorLog[dmgTypeTotal]
 
-	local nTime = GM:GetActiveTime(tLogSegment, tActorLog)
+	local nTime = tActorLog:GetActiveTime()
 
 	--GM:Rover("GetActorList", {dmgTypeTotal=dmgTypeTotal, nDmgTotal=nDmgTotal, tActorLog=tActorLog})
 

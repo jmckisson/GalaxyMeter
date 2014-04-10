@@ -278,7 +278,7 @@ function Deaths:PrintPlayerLog(strPlayerName)
 
 	local tPlayerLog = GM:GetLogDisplay().players[strPlayerName]
 
-	tPlayerLog.log = tPlayerLog.log or GM.Queue.new()
+	tPlayerLog.log = tPlayerLog.log or GM.Queue:new()
 
 	local log = tPlayerLog.log
 
@@ -294,20 +294,20 @@ end
 
 function Deaths:AddLogEntryPlayer(tLogEntry, tPlayer)
 
-	tPlayer.log = tPlayer.log or GM.Queue.new()
+	tPlayer.log = tPlayer.log or GM.Queue:new()
 
 	--GM:Rover("tPlayer", {entry=tLogEntry, player=tPlayer, log=tPlayer.log, q=GM.Queue})
 
 	local log = tPlayer.log
 
 	-- Append latest
-	GM.Queue.PushRight(tPlayer.log, tLogEntry)
+	tPlayer.log:PushRight(tLogEntry)
 
 	-- Remove non-recent events
 	local nTimeThreshold = tLogEntry.nClockTime - Deaths.nLogTimeWindow
 
 	while tPlayer.log[tPlayer.log.first].nClockTime < nTimeThreshold do
-		GM.Queue.PopLeft(tPlayer.log)
+		tPlayer.log:PopLeft()
 	end
 end
 

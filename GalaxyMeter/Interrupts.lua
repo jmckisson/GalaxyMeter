@@ -247,7 +247,7 @@ function Interrupts:GetCastList()
 	local tLogDisplay = GM:GetLogDisplay()
 	local nActorId = GM:LogActorId()
 
-	local tActor = tLogDisplay:GetMob(nActorId)
+	local tActor = tLogDisplay:FindMob(nActorId)
 
 	local tTotal = {t = 0, c = GM.kDamageStrToColor.Self, progress = 1}
 	tTotal.tStr = ""

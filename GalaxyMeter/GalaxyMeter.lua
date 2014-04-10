@@ -78,10 +78,56 @@ end
 
 
 local gLog
-local Queue
+local GM
 local Player
 local Mob
 
+local Queue = {}
+function Queue:new(o)
+	o = o or {}
+	setmetatable(o, self)
+	self.__index = self
+	self.first = 0
+	self.last = -1
+
+	return 0
+end
+
+function Queue:PushLeft(value)
+	local first = self.first - 1
+	self.first = first
+	self[first] = value
+	return first
+end
+
+function Queue:PushRight(value)
+	local last = self.last + 1
+	self.last = last
+	self[last] = value
+	return last
+end
+
+function Queue:PopLeft()
+	local first = self.first
+	if first > self.last then error("queue is empty") end
+	local value = self[first]
+	self[first] = nil        -- to allow garbage collection
+	self.first = first + 1
+	return value
+end
+
+function Queue:PopRight()
+	local last = self.last
+	if self.first > last then error("queue is empty") end
+	local value = self[last]
+	self[last] = nil         -- to allow garbage collection
+	self.last = last - 1
+	return value
+end
+
+function Queue:Size()
+	return self.last - self.first + 1
+end
 
 ----------------------------------
 -- Log Definition
@@ -103,11 +149,9 @@ setmetatable(Log, {
 function Log.CreateNewLog(strName)
 	local log = Log(strName)
 
-	if not Log.entries then
-		Log.entries = {}
-	end
+	Log.entries = Log.entries or Queue:new()
 
-	table.insert(Log.entries, 1, log)
+	log.idx = Log.entries:PushRight(log)
 
 	return log
 end
@@ -119,6 +163,83 @@ function Log:_init(strTitle)
 	self.mobs = {}
 	self.start = 0
 	self.combat_length = 0
+end
+
+function Log:GetCombatLength()
+	return self.combat_length
+end
+
+
+function Log:Start()
+	self.start = os.clock()
+end
+
+
+function Log:Stop()
+	self.stop = os.clock()
+end
+
+
+function Log:Tick()
+	self.combat_length = os.clock() - self.start
+end
+
+
+function Log:TryStart(tEvent)
+
+	local target = tEvent.tTargetInfo.unit
+
+	-- Should we trigger a new log segment?
+	if self.start == 0 and target:GetType() ~= "Harvest" then
+
+		gLog:info("StartLogSegment()")
+
+		self:Start()
+		GM.timerDisplay:Start()
+		GM.timerTimer:Start()
+
+		local displayIdx = GM.vars.tLogDisplay.idx
+
+		-- Switch to the newly started segment if we're looking at the most recent segment
+		if displayIdx == self.idx - 1 then
+			gLog:info(string.format("Display(%d : %.1fs) -> Current(%d :%.1fs)",
+				displayIdx, GM.vars.tLogDisplay.combat_length, self.idx, self.combat_length))
+
+			GM.vars.tLogDisplay = self
+		end
+
+		GM:Dirty(true)
+
+		if not target:IsACharacter() then
+			self.name = tEvent.tTargetInfo.strName
+		else
+			-- So attacking plants sometimes returns not NonPlayer, with a nil targettarget
+			if target:GetTarget() then
+				self.name = target:GetTarget():GetName()
+			else
+				self.name = "Unknown"
+			end
+		end
+
+		Event_FireGenericEvent("GalaxyMeterLogStart", self)
+
+		gLog:info(string.format("TryStart: Set activeLog.name to %s, targetType %s", self.name, target:GetType()))
+	end
+end
+
+
+function Log:GetTimeString()
+	local time = self.combat_length
+	local Min = math.floor(time / 60)
+	local Sec = time % 60
+
+	local Time_String = ""
+	if time >= 60 then
+		Time_String = string.format("%sm:%.0fs", Min , Sec )
+	else
+		Time_String = string.format("%.1fs", Sec )
+	end
+	return Time_String
 end
 
 
@@ -182,8 +303,6 @@ function Log:GetPlayer(strName, tPlayerInfo)
 	return player
 end
 
-
-
  
 -----------------------------------------------------------------------------------------------
 -- Constants
@@ -241,17 +360,14 @@ function GalaxyMeter:OnLoad()
 		appender = "GeminiConsole"
 	})
 
+	GM = self
 	GalaxyMeter.Log = Log
-
 	GalaxyMeter.Logger = gLog
-
-	Queue = Apollo.GetPackage("drafto_Queue-1.1").tPackage
-
 	GalaxyMeter.Queue = Queue
-
 	Player = self.Player
 	Mob = self.Mob
 
+	-[[
 	Queue.copy = function(list)
 		local qNew = {first = list.first, last = list.last}
 
@@ -261,6 +377,7 @@ function GalaxyMeter:OnLoad()
 
 		return qNew
 	end
+	--]]
 	
 	-- Slash Commands
 	Apollo.RegisterSlashCommand("galaxy", 							"OnGalaxyMeterOn", self)
@@ -275,9 +392,7 @@ function GalaxyMeter:OnLoad()
 	Apollo.RegisterEventHandler("UnitDestroyed",					"OnUnitDestroyed", self)
 	--Apollo.RegisterEventHandler("SpellCastFailed", 				"OnSpellCastFailed", self)
 	--Apollo.RegisterEventHandler("SpellEffectCast", 				"OnSpellEffectCast", self)
-	--Apollo.RegisterEventHandler("CombatLogString", 				"OnCombatLogString", self)
-	--Apollo.RegisterEventHandler("GenericEvent_CombatLogString", 	"OnCombatLogString", self)
-	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
+	--Apollo.RegisterEventHandler("CombatLogAbsorption",			"OnCombatLogAbsorption", self)
 	Apollo.RegisterEventHandler("CombatLogDamage",					"OnCombatLogDamage", self)
 	Apollo.RegisterEventHandler("CombatLogDispel",					"OnCombatLogDispel", self)
 	Apollo.RegisterEventHandler("CombatLogHeal",					"OnCombatLogHeal", self)
@@ -583,17 +698,14 @@ function GalaxyMeter:OnLoad()
 	self.vars = {
 		-- modes
 		tMode = self.tModes["Main Menu"],   -- Default to Main Menu
-		nLogIndex = 0,
-		--bGrouped = false,
 	}
 
 	self.timerPulse:Start()
 
 	self.bPetAffectingCombat = false
-	self.bNeedNewLog = true
 	self:NewLogSegment()
 
-	self.vars.tLogDisplay = Log.entries[1]
+	self.vars.tLogDisplay = Log.entries[Log.entries.last]
 
 	self.Deaths:Init()
 	self.MobData:Init()
@@ -633,53 +745,75 @@ function GalaxyMeter:Dirty(val)
 end
 
 
+function GalaxyMeter:DebugLogTimes()
 
------------------------------------------------------------------------------------------------
--- Timers
------------------------------------------------------------------------------------------------
-function GalaxyMeter:OnPulse()
-	
-	local unitPlayer = GameLib.GetPlayerUnit()
-	if unitPlayer then
-		self.unitPlayer = unitPlayer
-		self.unitPlayerId = self.unitPlayer:GetId()
-		self.PlayerId = tostring(self.unitPlayerId)
-		self.PlayerName = self.unitPlayer:GetName()
-		self.PlayerClassId = self.unitPlayer:GetClassId()
-	end
+	local log = self:GetLogDisplay()
 
+	local nLogTime = log.combat_length
 
-	-- Check if the rest of the group is out of combat
-	if self.tCurrentLog.start > 0 then
-		if not self:GroupInCombat() then
-			if self.tCurrentLog.combat_length > 10 then
-				gLog:info("OnPulse: pushing combat segment")
-				self:PushLogSegment()
-			else
-				gLog:info("OnPulse: short segment, clearing")
-				self.timerDisplay:Stop()
-				self.timerTimer:Stop()
-				self.tCurrentLog.name = "Current"
-				self.tCurrentLog.start = 0
-				self.tCurrentLog.combat_length = 0
-				self.tCurrentLog.players = {}
-				self.tCurrentLog.mobs = {}
-				self.Children.TimeText:SetText(self:SecondsToString(0))
-				self:RefreshDisplay()
-			end
-		else
-			--gLog:info("OnPlayerCheckTimer - Not pushing segment, group in combat")
+	for _, actor in pairs(log.players) do
+
+		local nActorTime = actor:GetActiveTime()
+
+		if nActorTime > nLogTime then
+			gLog:info(string.format("[%.1fs : %.1f] %s :: first %.1f last %.1f active %.1fs",
+				nLogTime, log.start, actor.strName, actor.firstAction, actor.lastAction, nActorTime))
+
+			break
 		end
-	else
-		--gLog:warn("no log checking timer")
 	end
 
 end
 
 
+-----------------------------------------------------------------------------------------------
+-- Timers
+-----------------------------------------------------------------------------------------------
+function GalaxyMeter:OnPulse()
+
+	if self.settings.bDebug then
+		self:DebugLogTimes()
+	end
+
+	local currentLog = self:GetLog()
+
+	-- Check if the rest of the group is out of combat
+	if currentLog.start > 0 and not self:GroupInCombat() then
+
+		self.timerDisplay:Stop()
+		self.timerTimer:Stop()
+		self.tCurrentLog:Stop()
+
+		if currentLog.combat_length > 10 then
+			gLog:info("OnPulse: stopping combat segment")
+
+			-- Pop off oldest, TODO Add config option to keep N old logs
+			if Log.entries:Size() >= 30 then
+				Log.entries:PopLeft()
+			end
+
+			Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
+
+			self:NewLogSegment()
+
+		else
+			gLog:info("OnPulse: short segment, clearing")
+
+			Log.entries:PopRight()
+
+			self:NewLogSegment()
+
+			self.Children.TimeText:SetText("0.0s")
+			self:RefreshDisplay()
+		end
+
+	end
+end
+
+
 function GalaxyMeter:OnDisplayTimer()
 
-	if self.wndMain:IsVisible() and self.vars.tLogDisplay == self.tCurrentLog then
+	if self.wndMain:IsVisible() and self.vars.tLogDisplay.idx == self.tCurrentLog.idx then
 
 		if self.bDirty then
 			self:RefreshDisplay()
@@ -691,11 +825,13 @@ end
 
 function GalaxyMeter:OnTimerTimer()
 
-	self.tCurrentLog.combat_length = os.clock() - self.tCurrentLog.start
+	local currentLog = self:GetLog()
 
-	if self.wndMain:IsVisible() and self.vars.tLogDisplay == self.tCurrentLog then
+	currentLog:Tick()
 
-		self.Children.TimeText:SetText(self:SecondsToString(self.vars.tLogDisplay.combat_length))
+	if self.wndMain:IsVisible() and self.vars.tLogDisplay.idx == currentLog.idx then
+
+		self.Children.TimeText:SetText(currentLog:GetTimeString())
 	end
 end
 
@@ -747,9 +883,11 @@ local function FixCombatBug(bCombat)
 		nCombatCount = 0
 	end
 
+	--[[
 	if nCombatCount > 0 then
 		gLog:info("nCombatCount: " .. nCombatCount)
 	end
+	--]]
 
 	return bInCombat or bCombat
 end
@@ -810,91 +948,14 @@ function GalaxyMeter:GroupInCombat()
 end
 
 
--- TODO: Move this into TryStartSegment
-function GalaxyMeter:StartLogSegment()
-
-	gLog:info("StartLogSegment()")
-
-	self.tCurrentLog.start = os.clock()
-
-	-- Switch to the newly started segment if logindex is still 0 (which means we're looking at 'current' logs)
-	if self.vars.nLogIndex == 0 then
-		self.vars.tLogDisplay = self.tCurrentLog
-		--self:Rover("StartLogSegment", self.vars)
-	end
-
-
-	self.bDirty = true
-	self.bNeedNewLog = false
-
-	self.timerDisplay:Start()
-	self.timerTimer:Start()
-
-	Event_FireGenericEvent("GalaxyMeterLogStart", self.tCurrentLog)
-end
-
-
-function GalaxyMeter:TryStartSegment(tEvent, unitTarget)
-	-- Should we trigger a new log segment?
-	if self.tCurrentLog.start == 0 and unitTarget:GetType() ~= "Harvest" then
-		self:StartLogSegment()
-
-		if not unitTarget:IsACharacter() then
-			self.tCurrentLog.name = tEvent.tTargetInfo.strName
-		else
-			-- So attacking plants sometimes returns not NonPlayer, with a nil targettarget
-			if unitTarget:GetTarget() then
-				self.tCurrentLog.name = unitTarget:GetTarget():GetName()
-			else
-				self.tCurrentLog.name = "Unknown"
-			end
-		end
-		gLog:info(string.format("OnCLDamage: Set activeLog.name to %s, targetType %s", self.tCurrentLog.name, unitTarget:GetType()))
-	end
-end
-
-
 function GalaxyMeter:NewLogSegment()
 
 	-- tCurrentLog always points to the segment in progress, even if it hasnt started yet
-    self.tCurrentLog = Log.CreateNewLog("Current")
+    local newLog = Log.CreateNewLog("Current")
 
-    if self.vars.nLogIndex == 0 then
-        -- If we were looking at the previous current log, set logdisplay to that one because the new blank log hasnt been displayed yet
-		-- If logindex is still 0 when starting a new log segment, switch to it
-		if Log.entries[2] then
-        	self.vars.tLogDisplay = Log.entries[2]
-		else
-			self.vars.tLogDisplay = Log.entries[1]
-		end
-    else
-        self.vars.nLogIndex = self.vars.nLogIndex + 1
-        self.vars.tLogDisplay = Log.entries[self.vars.nLogIndex]
-    end
+   	self.tCurrentLog = newLog
 
-
-	self:Rover("NewLogSegment: vars", self.vars)
 	self:Rover("log", Log.entries)
-end
-
-
--- TODO rename this, the actual 'push' occurs in NewLogSegment
-function GalaxyMeter:PushLogSegment()
-	gLog:info("Pushing log segment")
-
-	self.tCurrentLog.stop = os.clock()
-
-    -- Pop off oldest, TODO Add config option to keep N old logs
-    if #Log.entries >= 30 then
-        table.remove(Log.entries)
-    end
-
-	self.timerDisplay:Stop()
-	self.timerTimer:Stop()
-
-	Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
-
-    self:NewLogSegment()
 end
 
 
@@ -1053,9 +1114,9 @@ function GalaxyMeter:LogModeType(str)
 end
 
 
-
+-- Current log is always the 'last' entry in the queue
 function GalaxyMeter:GetLog()
-	return self.tCurrentLog
+	return Log.entries[Log.entries.last]
 end
 
 
@@ -1064,16 +1125,11 @@ function GalaxyMeter:GetLogDisplay()
 end
 
 
--- @return LogDisplayTimer, or nil
-function GalaxyMeter:GetLogDisplayTimer()
-	return self.vars.tLogDisplay.combat_length
-end
-
 
 function GalaxyMeter:SetLogTitle(title)
 	if self.tCurrentLog.name == "" then
 		self.tCurrentLog.name = title
-		if self.tCurrentLog == self.vars.tLogDisplay then
+		if self.tCurrentLog.idx == self.vars.tLogDisplay.idx then
 			self.Children.EncounterText:SetText(title)
 		end
 	end
@@ -1225,9 +1281,11 @@ function GalaxyMeter:OnCombatLogDeflect(tEventArgs)
 
 	if tEvent.nTypeId > 0 then
 
-		self:TryStartSegment(tEvent, tEventArgs.unitTarget)
+		local log = self:GetLog()
 
-		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		log:TryStart(tEvent)
+
+		local player = log:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 		player:UpdateSpell(tEvent)
 
 		Event_FireGenericEvent(GalaxyMeter.kEventDeflect, tEvent)
@@ -1273,9 +1331,11 @@ function GalaxyMeter:OnCombatLogDamage(tEventArgs)
 
 	if tEvent.nTypeId > 0 then
 
-		self:TryStartSegment(tEvent, tEventArgs.unitTarget)
+		local log = self:GetLog()
 
-		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		log:TryStart(tEvent)
+
+		local player = log:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
 		self:Rover("OnCLDamage", {tEvent=tEvent, player=player})
 
@@ -1373,7 +1433,7 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tCasterInfo
 
-		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		local player = self:GetLog():GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
 		player:UpdateSpell(tEvent)
 
@@ -1388,7 +1448,7 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tCasterInfo
 
-		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		local player = self:GetLog():GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
 		player:UpdateSpell(tEvent)
 
@@ -1401,7 +1461,7 @@ function GalaxyMeter:ProcessHeal(tEvent)
 
 		tEvent.tPlayerInfo = tEvent.tTargetInfo
 
-		local player = self.tCurrentLog:GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
+		local player = self:GetLog():GetPlayer(tEvent.tPlayerInfo.strName, tEvent.tPlayerInfo)
 
 		player:UpdateSpell(tEvent)
 
@@ -1896,7 +1956,7 @@ function GalaxyMeter:GetUnitList()
 	local tLogSegment = self:GetLogDisplay()
 	local tLogActors = tLogSegment[mode.segType]	--mobs or players
 
-	local nTime = self:GetLogDisplayTimer()
+	local nTime = tLogSegment:GetCombatLength()
 
 	local tList = {}
 	local nSum, nMax = 0, 0
@@ -1974,13 +2034,13 @@ end
 --]]
 function GalaxyMeter:GetOverallList()
 
-	local tLogSegment = self.vars.tLogDisplay
+	local tLogSegment = self:GetLogDisplay()
 	local mode = self.vars.tMode
 
 	-- Grab segment type from mode: players/mobs/etc
 	local tSegmentType = tLogSegment[mode.segType]
 
-	local nTime = tLogSegment.combat_length
+	local nTime = tLogSegment:GetCombatLength()
 
 	-- Get total and max
 	local nMax = 0
@@ -2004,21 +2064,6 @@ function GalaxyMeter:GetOverallList()
 			local nAmount = tActor[mode.type]
 
 			local nActorTime = tActor:GetActiveTime()
-
-			if nActorTime > nTime then
-				gLog:info(string.format("[%.1fs : %.1f] %s :: first %.1f last %.1f active %.1fs",
-					nTime, tLogSegment.start, tActor.strName, tActor.firstAction, tActor.lastAction, nActorTime))
-
-				--[[
-				Event_FireGenericEvent("SendVarToRover", "tActorBadTime_"..tActor.strName, {
-					self = self,
-					tLog = tLogSegment,
-					tActor = tActor,
-					activeCalc = (tActor.lastAction - tActor.firstAction)
-				})
-				--]]
-				--nActorTime = nTime
-			end
 
 
 			table.insert(tList, {
@@ -2326,9 +2371,9 @@ end
 -- @param tList List generated by Get*List
 function GalaxyMeter:ReportGenericList(tList, tTotal, strDisplayText, strTotalText)
 
-	local tLogSegment = self.vars.tLogDisplay
+	local tLogSegment = self:GetLogDisplay()
 	local mode = self.vars.tMode
-	local nTime = self:GetLogDisplayTimer()
+	local nTime = tLogSegment:GetCombatLength()
 	local tStrings = {}
 	local total = 0
 
@@ -2472,10 +2517,11 @@ end
 -- when the Clear button is clicked
 function GalaxyMeter:OnClearAll()
 
-	self.bNeedNewLog = true
+	Log.entries = {}
+
 	self:NewLogSegment()
+
 	self.vars = {
-		nLogIndex = 0,
 		tLogDisplay = self.tCurrentLog,
 		strCurrentLogType = "",
 		strCurrentPlayerName = "",
@@ -2495,7 +2541,7 @@ function GalaxyMeter:OnEncounterDropDown( wndHandler, wndControl, eMouseButton )
 		self.wndEncList:Show(true)
 		
 		-- Newest Entry at the Top
-		for i = 1, #Log.entries do
+		for i = Log.entries.last, Log.entries.first do
 			local wnd = Apollo.LoadForm(self.xmlMainDoc, "EncounterItem", self.Children.EncItemList, self)
 			table.insert(self.tEncItems, wnd)
 			
@@ -2518,19 +2564,6 @@ function GalaxyMeter:HideEncounterDropDown()
 	self.wndEncList:Show(false)
 end
 
-
-function GalaxyMeter:SecondsToString(time)
-	local Min = math.floor(time / 60)
-	local Sec = time % 60
-
-	local Time_String = ""
-	if time >= 60 then
-		Time_String = string.format("%sm:%.0fs", Min , Sec )
-	else
-		Time_String = string.format("%.1fs", Sec )
-	end
-	return Time_String
-end
 
 
 -----------------------------------------------------------------------------------------------
@@ -2747,7 +2780,6 @@ function GalaxyMeter:AddItem(i)
     item.bar:SetMax(1)
     item.bar:SetProgress(0)
     item.left_text:SetTextColor(kcrNormalText)
-	--item.bar:SetTextColor(kcrNormalText)
 
 	wnd:FindChild("Highlight"):Show(false)
 
@@ -2881,7 +2913,7 @@ function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButt
 	self:HideEncounterDropDown()
 
 	-- Right now this only updates in OnTimer, should probably look at the bDirty logic and move it into RefreshDisplay
-	self.Children.TimeText:SetText(self:SecondsToString(self:GetLogDisplayTimer()))
+	self.Children.TimeText:SetText(self.vars.tLogDisplay:GetTimeString())
 
 	self.bDirty = true
 	self:RefreshDisplay()
@@ -2912,4 +2944,4 @@ end
 -- GalaxyMeter Instance
 -----------------------------------------------------------------------------------------------
 local GalaxyMeterInst = GalaxyMeter:new()
-Apollo.RegisterAddon(GalaxyMeterInst, false, "", {"GeminiLogging-1.1", "drafto_Queue-1.1"})
+Apollo.RegisterAddon(GalaxyMeterInst, false, "", {"GeminiLogging-1.1"})
