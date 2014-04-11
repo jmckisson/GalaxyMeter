@@ -90,7 +90,7 @@ function Queue:new(o)
 	self.first = 0
 	self.last = -1
 
-	return 0
+	return self
 end
 
 function Queue:PushLeft(value)
@@ -132,7 +132,11 @@ end
 ----------------------------------
 -- Log Definition
 ----------------------------------
-local Log = {}
+local Log = {
+	entries = Queue:new(),
+	nDisplayIdx = 0,
+	nCurrentIdx = 0,
+}
 Log.__index = Log
 
 setmetatable(Log, {
@@ -198,14 +202,14 @@ function Log:TryStart(tEvent)
 		GM.timerDisplay:Start()
 		GM.timerTimer:Start()
 
-		local displayIdx = GM.vars.tLogDisplay.idx
+		local displayIdx = Log.nDisplayIdx
 
 		-- Switch to the newly started segment if we're looking at the most recent segment
 		if displayIdx == self.idx - 1 then
 			gLog:info(string.format("Display(%d : %.1fs) -> Current(%d :%.1fs)",
-				displayIdx, GM.vars.tLogDisplay.combat_length, self.idx, self.combat_length))
+				displayIdx, Log.entries[Log.nDisplayIdx].combat_length, self.idx, self.combat_length))
 
-			GM.vars.tLogDisplay = self
+			Log.nDisplayIdx = self.idx
 		end
 
 		GM:Dirty(true)
@@ -276,6 +280,7 @@ function Log:GetPlayer(strName, tPlayerInfo)
 
 	local player = self.players[strName]
 
+
 	if not player then
 
 		player = Player(tPlayerInfo)
@@ -285,6 +290,9 @@ function Log:GetPlayer(strName, tPlayerInfo)
 		--Event_FireGenericEvent("SendVarToRover", "GetPlayer_"..strName, {tPlayerInfo=tPlayerInfo, player=player, log=self})
 
 	end
+
+	--gLog:info(string.format("log %d GetPlayer %s first %d last %d",
+	--	self.idx, strName, player.firstAction or -1, player.lastAction or -1))
 
 	if not player.classId then
 		--gLog:error(string.format("%s missing ClassId", player.strName))
@@ -299,6 +307,13 @@ function Log:GetPlayer(strName, tPlayerInfo)
 	end
 
 	player:UpdateActiveTime()
+
+	--[[
+	if player.lastAction - player.firstAction > self.combat_length then
+		gLog:info(string.format("log %d : %.1fs, player %s : %.1fs, first %d, last %d",
+			self.idx, self.combat_length, player.strName, player:GetActiveTime(), player.firstAction or -1, player.lastAction or -1))
+	end
+	--]]
 
 	return player
 end
@@ -366,18 +381,6 @@ function GalaxyMeter:OnLoad()
 	GalaxyMeter.Queue = Queue
 	Player = self.Player
 	Mob = self.Mob
-
-	-[[
-	Queue.copy = function(list)
-		local qNew = {first = list.first, last = list.last}
-
-		for i = qNew.first, qNew.last do
-			qNew[i] = list[i]
-		end
-
-		return qNew
-	end
-	--]]
 	
 	-- Slash Commands
 	Apollo.RegisterSlashCommand("galaxy", 							"OnGalaxyMeterOn", self)
@@ -484,7 +487,7 @@ function GalaxyMeter:OnLoad()
 			format = function(...)
 				if self.settings.nFormatType == 2 then
 					return self:FormatAmountActiveTime(...)
-				elseif self.settings.FormatType == 3 then
+				elseif self.settings.nFormatType == 3 then
 					return self:FormatAmountActiveTimeLength(...)
 				end
 
@@ -575,7 +578,7 @@ function GalaxyMeter:OnLoad()
 			format = function(...)
 				if self.settings.nFormatType == 2 then
 					return self:FormatAmountActiveTime(...)
-				elseif self.settings.FormatType == 3 then
+				elseif self.settings.nFormatType == 3 then
 					return self:FormatAmountActiveTimeLength(...)
 				end
 
@@ -705,7 +708,7 @@ function GalaxyMeter:OnLoad()
 	self.bPetAffectingCombat = false
 	self:NewLogSegment()
 
-	self.vars.tLogDisplay = Log.entries[Log.entries.last]
+	Log.nDisplayIdx = Log.entries.last
 
 	self.Deaths:Init()
 	self.MobData:Init()
@@ -782,7 +785,7 @@ function GalaxyMeter:OnPulse()
 
 		self.timerDisplay:Stop()
 		self.timerTimer:Stop()
-		self.tCurrentLog:Stop()
+		self:GetLog():Stop()
 
 		if currentLog.combat_length > 10 then
 			gLog:info("OnPulse: stopping combat segment")
@@ -792,7 +795,7 @@ function GalaxyMeter:OnPulse()
 				Log.entries:PopLeft()
 			end
 
-			Event_FireGenericEvent("GalaxyMeterLogStop", self.tCurrentLog)
+			Event_FireGenericEvent("GalaxyMeterLogStop", self:GetLog())
 
 			self:NewLogSegment()
 
@@ -813,7 +816,7 @@ end
 
 function GalaxyMeter:OnDisplayTimer()
 
-	if self.wndMain:IsVisible() and self.vars.tLogDisplay.idx == self.tCurrentLog.idx then
+	if self.wndMain:IsVisible() and Log.nDisplayIdx == Log.entries.last then
 
 		if self.bDirty then
 			self:RefreshDisplay()
@@ -829,7 +832,7 @@ function GalaxyMeter:OnTimerTimer()
 
 	currentLog:Tick()
 
-	if self.wndMain:IsVisible() and self.vars.tLogDisplay.idx == currentLog.idx then
+	if self.wndMain:IsVisible() and Log.nDisplayIdx == currentLog.idx then
 
 		self.Children.TimeText:SetText(currentLog:GetTimeString())
 	end
@@ -953,7 +956,7 @@ function GalaxyMeter:NewLogSegment()
 	-- tCurrentLog always points to the segment in progress, even if it hasnt started yet
     local newLog = Log.CreateNewLog("Current")
 
-   	self.tCurrentLog = newLog
+   	--self.tCurrentLog = newLog
 
 	self:Rover("log", Log.entries)
 end
@@ -1121,15 +1124,18 @@ end
 
 
 function GalaxyMeter:GetLogDisplay()
-	return self.vars.tLogDisplay
+	return Log.entries[Log.nDisplayIndex]
 end
 
 
 
 function GalaxyMeter:SetLogTitle(title)
-	if self.tCurrentLog.name == "" then
-		self.tCurrentLog.name = title
-		if self.tCurrentLog.idx == self.vars.tLogDisplay.idx then
+
+	local log = self:GetLog()
+
+	if log.name == "" then
+		log.name = title
+		if Log.entries.last == Log.nDisplayIndex then
 			self.Children.EncounterText:SetText(title)
 		end
 	end
@@ -2016,7 +2022,7 @@ function GalaxyMeter:GetUnitList()
 		string.format(mode.pattern, tLogSegment.name),
 		FormatScaleAmount(tTotal.t),
 		FormatScaleAmount(tTotal.t / nTime),
-		self:SecondsToString(nTime))
+		tLogSegment:GetTimeString())
 
 	return tList, tTotal, mode.name, strReportTotalText
 end
@@ -2090,7 +2096,7 @@ function GalaxyMeter:GetOverallList()
 		string.format(mode.pattern, tLogSegment.name),
 		FormatScaleAmount(tTotal.t),
 		FormatScaleAmount(tTotal.t / nTime),
-		self:SecondsToString(nTime))
+		tLogSegment:GetTimeString())
 
     return tList, tTotal, mode.name, strTotalText
 end
@@ -2106,7 +2112,7 @@ function GalaxyMeter:GetPlayerList()
 	-- These should have already been set
 	local strPlayerName = self.vars.strCurrentPlayerName
 	local mode = self.vars.tMode
-	local tLogSegment = self.vars.tLogDisplay
+	local tLogSegment = self:GetLogDisplay()
 
 	if not tLogSegment[mode.segType]
 	or not tLogSegment[mode.segType][strPlayerName] then
@@ -2181,7 +2187,7 @@ function GalaxyMeter:GetPlayerList()
 		strModePattern,
 		nDmgTotal,
 		nDmgTotal / nTime,
-		self:SecondsToString(nTime))
+		tLogSegment:GetTimeString())
 
     return tList, tTotal, strModeName, strTotalText
 end
@@ -2242,7 +2248,7 @@ function GalaxyMeter:GetSpellList()
 
 	local strDisplayText = string.format("%s's %s", strActorName, tSpell.name)
 
-	local strTotalText = strDisplayText .. " for " .. self.vars.tLogDisplay.name
+	local strTotalText = strDisplayText .. " for " .. Log.entries[Log.nDisplayIdx].name
 
 	return tList, nil, strDisplayText, strTotalText
 end
@@ -2336,7 +2342,7 @@ function GalaxyMeter:GetSpellTotalsList()
 
 	local strDisplayText = string.format("%s's %s", self.vars.strCurrentPlayerName, "<Totals Placeholder>")
 
-	local strTotalText = strDisplayText .. " for " .. self.vars.tLogDisplay.name
+	local strTotalText = strDisplayText .. " for " .. Log.entries[Log.nDisplayIdx].name
 
 	return tList, nil, strDisplayText, strTotalText
 end
@@ -2517,12 +2523,14 @@ end
 -- when the Clear button is clicked
 function GalaxyMeter:OnClearAll()
 
-	Log.entries = {}
+	Log.entries = Queue:new()
 
 	self:NewLogSegment()
 
+	Log.nDisplayIdx = Log.entries.last
+
 	self.vars = {
-		tLogDisplay = self.tCurrentLog,
+		--tLogDisplay = self.tCurrentLog,
 		strCurrentLogType = "",
 		strCurrentPlayerName = "",
 		strCurrentSpellName = "",
@@ -2530,28 +2538,31 @@ function GalaxyMeter:OnClearAll()
 		tMode = self.tModes["Main Menu"],
 		tModeLast = {}
 	}
-	self.Children.EncounterText:SetText(self.vars.tLogDisplay.name)
-	self.Children.TimeText:SetText(self:SecondsToString(0))
+	self.Children.EncounterText:SetText(self:GetLogDisplay().name)
+	self.Children.TimeText:SetText("0.0s")
 	self:RefreshDisplay()
 end
 
 
 function GalaxyMeter:OnEncounterDropDown( wndHandler, wndControl, eMouseButton )
 	if not self.wndEncList:IsVisible() then
-		self.wndEncList:Show(true)
+
 		
 		-- Newest Entry at the Top
-		for i = Log.entries.last, Log.entries.first do
+		for i = Log.entries.last, Log.entries.first, -1 do
 			local wnd = Apollo.LoadForm(self.xmlMainDoc, "EncounterItem", self.Children.EncItemList, self)
 			table.insert(self.tEncItems, wnd)
+
+			local log = Log.entries[i]
 			
-			local TimeString = self:SecondsToString(Log.entries[i].combat_length)
+			local TimeString = log:GetTimeString()
 			
-			wnd:FindChild("Text"):SetText(Log.entries[i].name .. " - " .. TimeString)
+			wnd:FindChild("Text"):SetText(log.name .. " - " .. TimeString)
 			wnd:FindChild("Highlight"):Show(false)
 			wnd:SetData(i)
 		end
 		self.Children.EncItemList:ArrangeChildrenVert()
+		self.wndEncList:Show(true)
 	else
 		self:HideEncounterDropDown()
 	end
@@ -2609,7 +2620,7 @@ function GalaxyMeter:DisplayMainMenu()
 			progress = 1,
 			click = function(m, btn)
 
-				if v and self.vars.tLogDisplay.start > 0 and btn == 0 then
+				if v and self:GetLogDisplay().start > 0 and btn == 0 then
 
 					-- Call next on CURRENT mode, v arg is next mode
 					self:PushMode(v)
@@ -2903,17 +2914,17 @@ end
 function GalaxyMeter:OnEncounterItemSelected( wndHandler, wndControl, eMouseButton, nLastRelativeMouseX, nLastRelativeMouseY )
 	local logIdx = wndHandler:GetData()
 
-	self.vars.tLogDisplay = Log.entries[logIdx]
+	Log.nDisplayIdx = Log.entries[logIdx]
 	-- Should we do a sanity check on the current mode? For now just force back to main menu
 	self.vars.tMode = self.tModes["Main Menu"]
 	self.vars.tModeLast = {}
 
-	self.Children.EncounterText:SetText(self.vars.tLogDisplay.name)
+	self.Children.EncounterText:SetText(self:GetLogDisplay().name)
 	
 	self:HideEncounterDropDown()
 
 	-- Right now this only updates in OnTimer, should probably look at the bDirty logic and move it into RefreshDisplay
-	self.Children.TimeText:SetText(self.vars.tLogDisplay:GetTimeString())
+	self.Children.TimeText:SetText(self:GetLogDisplay():GetTimeString())
 
 	self.bDirty = true
 	self:RefreshDisplay()
