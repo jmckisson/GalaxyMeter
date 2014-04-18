@@ -53,7 +53,7 @@ function Deaths:Init()
 	Apollo.SetConsoleVariable("cmbtlog.disableDelayDeath", false)
 	Apollo.SetConsoleVariable("cmbtlog.disableDeath", false)
 
-	Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
+	--Apollo.RegisterEventHandler("CombatLogAbsorption",				"OnCombatLogAbsorption", self)
 	Apollo.RegisterEventHandler(GM.kEventDamage,					"OnDamage", self)
 	--Apollo.RegisterEventHandler("CombatLogDeath",					"OnCombatLogDeath", self)
 	Apollo.RegisterEventHandler(GM.kEventDeflect,					"OnDeflect", self)
@@ -61,7 +61,7 @@ function Deaths:Init()
 	--Apollo.RegisterEventHandler("CombatLogDelayDeath",				"OnCombatLogDelayDeath", self)
 	--Apollo.RegisterEventHandler("CombatLogFallingDamage",			"OnCombatLogFallingDamage", self)
 	Apollo.RegisterEventHandler(GM.kEventHeal,						"OnHeal", self)
-	Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
+	--Apollo.RegisterEventHandler("CombatLogImmunity",				"OnCombatLogImmunity", self)
 
 
 	GM:AddMenu("Player Deaths", {
@@ -278,7 +278,7 @@ function Deaths:PrintPlayerLog(strPlayerName)
 
 	local tPlayerLog = GM:GetLogDisplay().players[strPlayerName]
 
-	tPlayerLog.log = tPlayerLog.log or GM.Queue:new()
+	tPlayerLog.log = tPlayerLog.log or GM.Queue.new()
 
 	local log = tPlayerLog.log
 
@@ -294,20 +294,20 @@ end
 
 function Deaths:AddLogEntryPlayer(tLogEntry, tPlayer)
 
-	tPlayer.log = tPlayer.log or GM.Queue:new()
+	tPlayer.log = tPlayer.log or GM.Queue.new()
 
-	--GM:Rover("tPlayer", {entry=tLogEntry, player=tPlayer, log=tPlayer.log, q=GM.Queue})
+	--GM:Rover("AddLogEntry_"..tPlayer.strName, {entry=tLogEntry, player=tPlayer, log=tPlayer.log})
 
-	local log = tPlayer.log
+	--local log = tPlayer.log
 
 	-- Append latest
-	tPlayer.log:PushRight(tLogEntry)
+	GM.Queue.PushRight(tPlayer.log, tLogEntry)
 
 	-- Remove non-recent events
 	local nTimeThreshold = tLogEntry.nClockTime - Deaths.nLogTimeWindow
 
 	while tPlayer.log[tPlayer.log.first].nClockTime < nTimeThreshold do
-		tPlayer.log:PopLeft()
+		GM.Queue.PopLeft(tPlayer.log)
 	end
 end
 
@@ -324,15 +324,15 @@ function Deaths:AddLogEntry(tEvent)
 		bDeath = tEvent.bDeath or false	-- Move this into nType?
 	}
 
-	--GM.Log:info(tNewLogEntry.strMessage)
+	--GM.Logger:info(tNewLogEntry.strMessage)
 
-	if tEvent.bCasterIsPlayer then
+	if tEvent.tCasterInfo.bIsPlayer then
 		local tActor = GM:GetLog().players[tEvent.tCasterInfo.strName]
 
 		self:AddLogEntryPlayer(tNewLogEntry, tActor)
 	end
 
-	if tEvent.bTargetIsPlayer and tEvent.unitCaster:GetId() ~= tEvent.unitTarget:GetId() then
+	if tEvent.tTargetInfo.bIsPlayer and tEvent.tTargetInfo.unit:GetId() ~= tEvent.tTargetInfo.unit:GetId() then
 		local tActor = GM:GetLog().players[tEvent.tTargetInfo.strName]
 
 		self:AddLogEntryPlayer(tNewLogEntry, tActor)
@@ -398,13 +398,13 @@ function Deaths:AddPlayerDeath(unitPlayer)
 
 		local strName = unitPlayer:GetName()
 
+		GM.Logger:info(strName .. " death")
+
 		local tPlayerLog = GM:GetLog().players[strName]
 
 		if tPlayerLog.log then
 
 			tPlayerLog.deaths = tPlayerLog.deaths or {}
-
-			GM.Logger:info(tPlayerLog.strName .. " death")
 
 			local tDeathLog = {}
 			for i = tPlayerLog.log.first, tPlayerLog.log.last do
@@ -425,7 +425,7 @@ function Deaths:AddPlayerDeath(unitPlayer)
 			})
 
 		else
-			GM.Logerg:warn(strName .. " died without entries in combat log!")
+			GM.Logger:warn(strName .. " died without entries in combat log!")
 		end
 
 	else

@@ -7,15 +7,23 @@
 
 local GM = Apollo.GetAddon("GalaxyMeter")
 
+local clock = os.clock
+local format = string.format
+local max = math.max
+local setmetatable = setmetatable
+
+
 local ActorProto = {}
 ActorProto.__index = ActorProto
 
+--[[
 setmetatable(ActorProto, {
 	__call = function(cls, ...)
 		local self = setmetatable({}, cls)
 		return self
 	end
 })
+--]]
 
 
 function ActorProto:_init()
@@ -36,6 +44,49 @@ function ActorProto:_init()
 	self.damagedBy = {}
 	self.healed = {}
 	self.healedBy = {}
+end
+
+
+--[[
+-- Return serialization friendly data table
+ ]]
+function ActorProto:GetData()
+	return {
+		damageDone = self.damageDone,
+		damageTaken = self.damageTaken,
+		healingDone = self.healingDone,
+		healingTaken = self.healingTaken,
+		damageIn = self.damageIn,
+		damageOut = self.damageOut,
+		healingIn = self.healingIn,
+		healingOut = self.healingOut,
+		damaged = self.damaged,
+		damagedBy = self.damagedBy,
+		healed = self.healed,
+		healedBy = self.healedBy,
+	}
+end
+
+
+-- TODO Be clever with init or something to initialize these values
+function ActorProto:SetData(tData)
+	-- Totals
+	self.damageDone = tData.damageDone		-- Total Damage Done
+	self.damageTaken = tData.damageTaken	-- Total Damage Taken
+	self.healingDone = tData.healingDone    -- Total Healing Done
+	self.healingTaken = tData.healingTaken	-- Total Healing Taken
+
+	-- Spells
+	self.damageIn = tData.damageIn          -- Damage Taken
+	self.damageOut = tData.damageOut        -- Damage Done
+	self.healingIn = tData.healingIn        -- Healing Taken
+	self.healingOut = tData.healingOut      -- Healing Done
+
+	-- Targets
+	self.damaged = tData.damaged
+	self.damagedBy = tData.damagedBy
+	self.healed = tData.healed
+	self.healedBy = tData.healedBy
 end
 
 
@@ -68,6 +119,19 @@ function Mob:_init(nId, tUnit)
 end
 
 
+--[[
+-- Return serialization friendly data table
+ ]]
+function Mob:GetData()
+	return {
+		id = self.id,
+		strName = self.strName,
+		classId = self.classId,
+		data = ActorProto.GetData(self),
+	}
+end
+
+
 -----------------------------------------
 -- Player : ActorProto
 -----------------------------------------
@@ -80,7 +144,6 @@ setmetatable(Player, {
 	-- Allow m = Player() syntax
 	__call = function(cls, ...)
 		local self = setmetatable({}, cls)
-		--GM.Logger:info("Player._call()")
 		self:_init(...)
 		return self
 	end
@@ -88,10 +151,6 @@ setmetatable(Player, {
 
 
 function Player:_init(tPlayerInfo)
-
-	--GM.Logger:info("Player._init()")
-
-	--Event_FireGenericEvent("SendVarToRover", "NewPlayer_"..tPlayerInfo.strName, {tPlayerInfo=tPlayerInfo, self=self})
 
 	ActorProto._init(self)
 
@@ -112,6 +171,45 @@ function Player:_init(tPlayerInfo)
 end
 
 
+--[[
+-- Return serialization friendly data table
+ ]]
+function Player:GetData()
+
+	local t = {
+		strName = self.strName,
+		playerId = self.playerId,
+		classId = self.classId,
+		firstAction = self.firstAction,
+		lastAction = self.lastAction,
+		deaths = self.deaths,
+		data = ActorProto.GetData(self)
+	}
+
+	return t
+end
+
+
+
+function Player:SetData(tData)
+	ActorProto.SetData(self, tData)
+
+	if tData.firstAction then
+		self.firstAction = tData.firstAction
+	end
+
+	if tData.lastAction then
+		self.lastAction = tData.lastAction
+	end
+
+	-- This assumes that there is a deaths module, we shouldnt have to
+	-- know about that here
+	if tData.deaths then
+		self.deaths = tData.deaths
+	end
+end
+
+
 
 --[[
 -- Get activity time for an actor in a log segment
@@ -123,7 +221,7 @@ function ActorProto:GetActiveTime()
 		nTimeTotal = self.lastAction - self.firstAction
 	end
 
-	return math.max(1, nTimeTotal)
+	return max(1, nTimeTotal)
 end
 
 
@@ -132,7 +230,7 @@ end
 -- @return Spell data table
 function ActorProto:GetSpell(tSpellTypeLog, spellName)
 
-	--gLog:info(string.format("GetSpell(tSpellTypeLog, %s)", spellName))
+	--gLog:info(format("GetSpell(tSpellTypeLog, %s)", spellName))
 
 	if not tSpellTypeLog[spellName] then
 		tSpellTypeLog[spellName] = {
@@ -159,7 +257,7 @@ end
 
 
 function ActorProto:UpdateActiveTime()
-	local timeNow = os.clock()
+	local timeNow = clock()
 
 	if not self.firstAction then
 		self.firstAction = timeNow
@@ -266,7 +364,7 @@ function ActorProto:UpdateSpell(tEvent)
 	else
 		self:Rover("UpdateSpell Error", tEvent)
 		GM.Logger:error("Unknown type in UpdateSpell!")
-		GM.Logger:error(string.format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
+		GM.Logger:error(format("Spell: %s, Caster: %s, Target: %s, Amount: %d",
 			strSpellName, strCaster, strTarget, nAmount or 0))
 
 		-- spell should be null here, safe to continue on...

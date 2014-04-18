@@ -230,13 +230,15 @@ function MobData:GetActorList()
 	-- "%s's Damage to %s"
 	local strModePatternTemp = string.format(mode.pattern, strName, tLogSegment.name)
 
+	local nLogTime = tLogSegment:GetCombatLength()
+
 	-- Move to Report
 	local strTotalText = string.format("%s - %d (%.2f) - %s",
 		--"%s's blah on %s"
 		strModePatternTemp,
 		nDmgTotal,
-		nDmgTotal / tLogSegment.combat_length,
-		self:SecondsToString(tLogSegment.combat_length))
+		nDmgTotal / nLogTime,
+		tLogSegment:GetTimeString())
 
 	return tList, tTotal, strDisplayText, strTotalText
 end
@@ -380,22 +382,25 @@ function MobData:OnCombatLogDamage(tEventArgs)
 
 	--GM:Rover("MobEvent", tEvent)
 
-	if tEvent.nTypeId > 0 and tEvent.nDamage then
-
-		GM:TryStartSegment(tEvent, tEventArgs.unitTarget)
+	if tEvent.nTypeId > 0 then
 
 		local log = GM:GetLog()
-		local mob
 
-		if not tEvent.tCasterInfo.bIsPlayer then
-			mob = log:GetMob(tEvent.tCasterInfo.nId, tEventArgs.unitCaster)
-		else
-			mob = log:GetMob(tEvent.tTargetInfo.nId, tEventArgs.unitTarget)
+		log:TryStart(tEvent)
+
+		if log:IsActive() then
+			local mob
+
+			if not tEvent.tCasterInfo.bIsPlayer then
+				mob = log:GetMob(tEvent.tCasterInfo.nId, tEventArgs.unitCaster)
+			else
+				mob = log:GetMob(tEvent.tTargetInfo.nId, tEventArgs.unitTarget)
+			end
+
+			--GM:Rover("mob", {mob = mob})
+
+			mob:UpdateSpell(tEvent)
 		end
-
-		--GM:Rover("mob", {mob = mob})
-
-		mob:UpdateSpell(tEvent)
 
 	else
 		GM.Logger:error(string.format("OnCLDamage: Something went wrong!  Invalid type Id, dmg raw %d, dmg %d", tEventArgs.nRawDamage, tEventArgs.nDamageAmount))
