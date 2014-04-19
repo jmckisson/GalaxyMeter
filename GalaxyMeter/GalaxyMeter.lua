@@ -2715,15 +2715,21 @@ function GalaxyMeter:OnClearAll()
 
 	Log.nDisplayIdx = Log.entries.last
 
+	local strMode = self.vars.strMainMode
+
 	self.vars = {
-		--tLogDisplay = self.tCurrentLog,
 		strCurrentLogType = "",
 		strCurrentPlayerName = "",
 		strCurrentSpellName = "",
 		strModeType = "",
-		tMode = self.tModes["Main Menu"],
 		tModeLast = {}
 	}
+
+	if strMode then
+		self.vars.strMainMode = strMode
+		self:PushMode(self.tModes[strMode])
+	end
+
 	self.Children.EncounterText:SetText(self:GetLogDisplay().name)
 	self.Children.TimeText:SetText("0.0s")
 	self:RefreshDisplay()
