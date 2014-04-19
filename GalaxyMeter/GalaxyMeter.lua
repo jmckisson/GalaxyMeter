@@ -270,7 +270,7 @@ function Log:Restore(tData)
 			nClassId = v.classId,
 		})
 
-		player:SetData(v.data)
+		player:SetData(v)
 
 		self.players[v.strName] = player
 	end
@@ -282,10 +282,7 @@ function Log:Restore(tData)
 
 		local mob = Mob({nId=v.id})
 
-		mob.strName = v.strName
-		mob.classId = v.classId
-
-		mob:SetData(v.data)
+		mob:SetData(v)
 
 		self.mobs[v.id] = mob
 	end

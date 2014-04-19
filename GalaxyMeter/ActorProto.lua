@@ -132,6 +132,14 @@ function Mob:GetData()
 end
 
 
+function Mob:SetData(tData)
+	ActorProto.SetData(self, tData.data)
+
+	self.strName = tData.strName
+	self.classId = tData.classId
+end
+
+
 -----------------------------------------
 -- Player : ActorProto
 -----------------------------------------
@@ -192,7 +200,7 @@ end
 
 
 function Player:SetData(tData)
-	ActorProto.SetData(self, tData)
+	ActorProto.SetData(self, tData.data)
 
 	if tData.firstAction then
 		self.firstAction = tData.firstAction
