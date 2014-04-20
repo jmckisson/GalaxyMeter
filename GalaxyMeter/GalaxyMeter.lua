@@ -2722,7 +2722,8 @@ function GalaxyMeter:OnClearAll()
 		strCurrentPlayerName = "",
 		strCurrentSpellName = "",
 		strModeType = "",
-		tModeLast = {}
+		tModeLast = {},
+		tMode = self.tModes["Main Menu"],
 	}
 
 	if strMode then
